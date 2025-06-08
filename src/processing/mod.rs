@@ -132,8 +132,15 @@ impl RepositoryProcessor {
 
         for document in patterns.values() {
             if let Some(path) = &document.path {
-                let full_path = format!("{}/{}", self.repository, path.display());
-                discovered_files.push(full_path);
+                discovered_files.push(path.display().to_string());
+            } else if let Some(sub_documents) = &document.sub_documents {
+                for sub_doc in sub_documents {
+                    if let Some(sub_path) = &sub_doc.path {
+                        discovered_files.push(sub_path.display().to_string());
+                    }
+                }
+            } else {
+                warn!("Document configuration for {} does not specify a path or sub-documents", document.title);
             }
         }
 

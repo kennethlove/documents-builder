@@ -122,11 +122,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                                 OutputFormat::Files => {
                                     // Save each fragment to a file
                                     for fragment in &result.fragments {
-                                        let fragment_dir = output_dir.join(&fragment.file_path).parent()
-                                            .unwrap_or(&output_dir)
-                                            .to_path_buf();
-                                        std::fs::create_dir_all(&fragment_dir)?;
-
                                         let filename = format!("{}-{:?}.md",
                                             fragment.file_path.replace('/', "_"),
                                             fragment.fragment_type
