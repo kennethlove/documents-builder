@@ -1,5 +1,6 @@
 use octocrab::{Octocrab, OctocrabBuilder};
 use serde::{Deserialize};
+use crate::ProjectConfig;
 
 #[derive(thiserror::Error, Debug)]
 pub enum GitHubError {
@@ -29,6 +30,12 @@ pub enum GitHubError {
     
     #[error("Environment variable not set: {0}")]
     EnvVarNotSet(#[from] std::env::VarError),
+    #[error("Failed to request file: {0}")]
+    RequestFailed(String),
+    #[error("File not found: {0}")]
+    FileNotFound(String),
+    #[error("Failed to decode content for file: {0}")]
+    InvalidFormat(String),
 }
 
 #[derive(Debug, Deserialize)]
@@ -141,7 +148,7 @@ impl GitHubClient {
         Ok(content.clone())
     }
     
-    pub async fn get_project_config(&self, repo_name: &str) -> Result<String, GitHubError> {
+    pub async fn get_project_config(&self, repo_name: &str) -> Result<ProjectConfig, GitHubError> {
         if let Err(e) = self.scan_for_config_file(repo_name).await {
             return Err(e);
         }
@@ -149,7 +156,25 @@ impl GitHubClient {
         if config.is_empty() {
             Err(GitHubError::ConfigFileEmpty(repo_name.to_string()))
         } else  {
-            Ok(config)
+            toml::from_str(&config).map_err(|e| GitHubError::ConfigFileReadError(format!("Failed to parse config: {}", e)))
         }
+    }
+
+    pub async fn get_file_content(&self, repo_name: &str, file_path: &str) -> Result<String, GitHubError> {
+        let content = self.client
+            .repos(&self.organization, repo_name)
+            .get_content()
+            .path(file_path)
+            .send()
+            .await
+            .map_err(|e| GitHubError::RequestFailed(format!("Failed to get file content: {}", e)))?;
+
+        let file_content = content.items.first()
+            .ok_or_else(|| GitHubError::FileNotFound(format!("File not found: {}", file_path)))?;
+
+        let decoded_content = file_content.decoded_content()
+            .ok_or_else(|| GitHubError::InvalidFormat(format!("Failed to decode content for file: {}", file_path)))?;
+
+        Ok(decoded_content)
     }
 }

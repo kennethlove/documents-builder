@@ -1,72 +1,38 @@
 # GitHub Documentation Platform - Action Plan
 
 ## Overview
-Building a webhook-driven documentation system that generates compositable HTML fragments for real-time organization-wide
-documentation aggregation.
+Building a dual-mode documentation system that processes GitHub repositories to generate compositable HTML fragments. The system supports both CLI-based processing for development/testing and webhook-driven real-time updates for production use.
 
-## Phase 1: Webhook Infrastructure 🌐
+## Phase 1: Core Processing Foundation 🔧
 
-### 1.1 HTTP Server Setup
-- [x] Add web framework dependency (`axum` or `warp`) to Cargo.toml
-- [x] Create basic HTTP server with health check endpoint
-- [x] Implement graceful shutdown handling
-- [x] Add request logging middleware
-- [x] Create error handling middleware with proper HTTP status codes
-- [x] Add CORS configuration for frontend integration
+### 1.1 Enhanced CLI Commands
+- [x] Basic CLI structure with `scan`, `list-all`, and `serve` commands
+- [ ] Add `process-repo` command for complete repository processing
+- [ ] Implement `process-batch` command for multiple repositories
+- [ ] Add `validate-config` command for configuration testing
+- [ ] Create `export-fragments` command for file-based output
+- [ ] Implement `search` command for testing search functionality
+- [ ] Add `status` command for system health (works offline)
 
-### 1.2 GitHub Webhook Integration
-- [ ] Implement GitHub webhook signature verification (HMAC-SHA256)
-- [ ] Create webhook payload parsing for GitHub events
-- [ ] Add webhook endpoint (`POST /webhooks/github`)
-- [ ] Filter for relevant events (push, pull_request merged)
-- [ ] Extract repository information from webhook payload
-- [ ] Add webhook secret configuration management
-- [ ] Test webhook integration with GitHub repository
-
-### 1.3 Event Processing Pipeline
-- [ ] Design async job queue using `tokio` channels
-- [ ] Implement job processor with error handling
-- [ ] Add job retry logic with exponential backoff
-- [ ] Create idempotency system (track processed webhook IDs)
-- [ ] Add processing status tracking
-- [ ] Implement job queue monitoring and metrics
-
-## Phase 2: Real-time Document Processing ⚡
-
-### 2.1 Selective Repository Processing
-- [ ] Modify existing `get_project_config` for webhook-triggered processing
-- [ ] Implement delta detection (analyze changed files from webhook)
-- [ ] Add single repository processing function
-- [ ] Create processing state management (in-progress, completed, failed)
-- [ ] Add processing timeouts and cancellation
-- [ ] Implement concurrent processing limits
-
-### 2.2 Enhanced Configuration Processing
-- [ ] Extend configuration validation and error handling
-- [ ] Add support for configuration versioning
-- [ ] Implement configuration caching
-- [ ] Create configuration change detection
-- [ ] Add configuration backup and rollback capability
-
-### 2.3 Markdown File Processing
-- [ ] Implement markdown file fetching from GitHub API
+### 1.2 Core Document Processing Engine
+- [ ] Refactor existing `get_project_config` into modular processing pipeline
+- [ ] Implement markdown file fetching and processing
 - [ ] Add support for different markdown file patterns (glob, regex)
-- [ ] Create markdown content validation
-- [ ] Add frontmatter parsing for metadata extraction
+- [ ] Create markdown content validation and frontmatter parsing
 - [ ] Implement markdown preprocessing (link resolution, image handling)
-- [ ] Add markdown content caching
+- [ ] Add processing progress reporting for CLI users
 
-## Phase 3: HTML Fragment Generation 🧩
+### 1.3 Output Management (File-based and Database)
+- [ ] Design flexible output system (files vs database)
+- [ ] Implement file-based fragment storage for CLI usage
+- [ ] Create fragment versioning and comparison logic
+- [ ] Add output format options (JSON, HTML, structured files)
+- [ ] Implement fragment validation and dependency tracking
+- [ ] Add export/import functionality for fragment collections
 
-### 3.1 Fragment Template System
-- [ ] Design HTML fragment templates for different content types
-- [ ] Create navigation fragment templates
-- [ ] Implement search result snippet templates
-- [ ] Add metadata card templates
-- [ ] Create table of contents fragment templates
-- [ ] Add HTMX attribute integration (`hx-get`, `hx-target`, etc.)
+## Phase 2: HTML Fragment Generation 🧩
 
-### 3.2 Content Processing Engine
+### 2.1 Content Processing Engine
 - [ ] Add `pulldown-cmark` for markdown parsing
 - [ ] Implement syntax highlighting for code blocks
 - [ ] Create cross-reference resolution system
@@ -74,7 +40,15 @@ documentation aggregation.
 - [ ] Implement custom markdown extensions
 - [ ] Add content sanitization and security measures
 
-### 3.3 Fragment Generation Logic
+### 2.2 Fragment Template System
+- [ ] Design HTML fragment templates for different content types
+- [ ] Create navigation fragment templates
+- [ ] Implement search result snippet templates
+- [ ] Add metadata card templates
+- [ ] Create table of contents fragment templates
+- [ ] Add HTMX attribute integration (`hx-get`, `hx-target`, etc.)
+
+### 2.3 Fragment Generation Logic
 - [ ] Create fragment factory pattern
 - [ ] Implement fragment versioning and comparison
 - [ ] Add fragment validation
@@ -82,7 +56,32 @@ documentation aggregation.
 - [ ] Implement fragment cache invalidation
 - [ ] Add fragment compression for storage
 
-## Phase 4: Database for Compositable Content 💾
+## Phase 3: HTTP Server Infrastructure 🌐
+
+### 3.1 Basic HTTP Server (Already Started)
+- [x] Add web framework dependency (`axum`) to Cargo.toml
+- [x] Create basic HTTP server with health check endpoint
+- [x] Implement graceful shutdown handling
+- [x] Add request logging middleware
+- [x] Create error handling middleware with proper HTTP status codes
+- [x] Add CORS configuration for frontend integration
+
+### 3.2 Fragment Serving API
+- [ ] Create `GET /fragments/repo/{repo}/content` endpoint
+- [ ] Implement `GET /fragments/repo/{repo}/navigation` endpoint
+- [ ] Add `GET /fragments/repo/{repo}/metadata` endpoint
+- [ ] Create `GET /search?q={query}` endpoint (returns HTML)
+- [ ] Implement `GET /fragments/repo/{repo}/toc` endpoint
+- [ ] Add proper HTTP caching headers (ETag, Cache-Control)
+
+### 3.3 Manual Processing Endpoints
+- [ ] Add `POST /process/repo/{repo}` for manual repository processing
+- [ ] Implement `POST /process/batch` for multiple repositories
+- [ ] Create `GET /status/repo/{repo}` for processing status
+- [ ] Add `POST /refresh/repo/{repo}` for force refresh
+- [ ] Implement processing progress endpoints
+
+## Phase 4: Database Integration (Optional) 💾
 
 ### 4.1 Database Schema Design
 - [ ] Design repositories table (id, name, organization, last_processed)
@@ -92,8 +91,8 @@ documentation aggregation.
 - [ ] Add processing_jobs table for job tracking
 - [ ] Implement database migrations system
 
-### 4.2 Database Layer Implementation
-- [ ] Add database dependency (`sqlx` with PostgreSQL/SQLite)
+### 4.2 Database Layer Implementation (Optional Dependencies)
+- [ ] Add database dependency (`sqlx` with PostgreSQL/SQLite) - **Optional**
 - [ ] Implement connection pooling
 - [ ] Create repository pattern for data access
 - [ ] Add database transaction management
@@ -102,23 +101,40 @@ documentation aggregation.
 
 ### 4.3 Search Integration
 - [ ] Implement full-text search indexing
-- [ ] Create search query processing
+- [ ] Create search query processing (file-based and database)
 - [ ] Add search ranking and relevance scoring
 - [ ] Implement search result caching
 - [ ] Add search analytics and tracking
 - [ ] Create search suggestion system
 
-## Phase 5: HTMX-Ready API Layer 🔌
+## Phase 5: GitHub Webhook Integration 🔗
 
-### 5.1 Fragment Serving Endpoints
-- [ ] Create `GET /fragments/repo/{repo}/content` endpoint
-- [ ] Implement `GET /fragments/repo/{repo}/navigation` endpoint
-- [ ] Add `GET /fragments/repo/{repo}/metadata` endpoint
-- [ ] Create `GET /search?q={query}` endpoint (returns HTML)
-- [ ] Implement `GET /fragments/repo/{repo}/toc` endpoint
-- [ ] Add proper HTTP caching headers (ETag, Cache-Control)
+### 5.1 Webhook Infrastructure
+- [ ] Implement GitHub webhook signature verification (HMAC-SHA256)
+- [ ] Create webhook payload parsing for GitHub events
+- [ ] Add webhook endpoint (`POST /webhooks/github`)
+- [ ] Filter for relevant events (push, pull_request merged)
+- [ ] Extract repository information from webhook payload
+- [ ] Add webhook secret configuration management
 
-### 5.2 Real-time Update System
+### 5.2 Event Processing Pipeline
+- [ ] Design async job queue using `tokio` channels
+- [ ] Implement job processor with error handling
+- [ ] Add job retry logic with exponential backoff
+- [ ] Create idempotency system (track processed webhook IDs)
+- [ ] Add processing status tracking
+- [ ] Implement job queue monitoring and metrics
+
+### 5.3 Delta Processing
+- [ ] Implement delta detection (analyze changed files from webhook)
+- [ ] Add selective repository processing
+- [ ] Create processing state management (in-progress, completed, failed)
+- [ ] Add processing timeouts and cancellation
+- [ ] Implement concurrent processing limits
+
+## Phase 6: Real-time Features 📡
+
+### 6.1 Real-time Update System
 - [ ] Implement Server-Sent Events (SSE) for live updates
 - [ ] Create WebSocket endpoint for real-time notifications
 - [ ] Add HTMX polling endpoints for content freshness
@@ -126,43 +142,7 @@ documentation aggregation.
 - [ ] Add event broadcasting system
 - [ ] Create client reconnection handling
 
-### 5.3 API Documentation and Testing
-- [ ] Add OpenAPI/Swagger documentation
-- [ ] Create API integration tests
-- [ ] Implement API rate limiting
-- [ ] Add API authentication/authorization
-- [ ] Create API monitoring and logging
-- [ ] Add API versioning strategy
-
-## Phase 6: AI Integration Preparation 🤖
-
-### 6.1 Content Vectorization
-- [ ] Research and choose embedding model (OpenAI, local models)
-- [ ] Implement document chunking strategy
-- [ ] Add vector embedding generation
-- [ ] Create vector storage system
-- [ ] Implement similarity search
-- [ ] Add embedding update mechanisms
-
-### 6.2 AI-Ready Content Structure
-- [ ] Extract and store document metadata for AI context
-- [ ] Create content summaries and abstractions
-- [ ] Implement content classification system
-- [ ] Add AI-powered search endpoints
-- [ ] Create Q&A system foundation
-- [ ] Implement content recommendation system
-
-## Phase 7: Enhanced CLI and Operations 🛠️
-
-### 7.1 Updated CLI Commands
-- [ ] Implement `serve` command with port configuration
-- [ ] Add `process-repo` command for manual processing
-- [ ] Create `search` command for testing search functionality
-- [ ] Implement `status` command for system health
-- [ ] Add `migrate` command for database operations
-- [ ] Create `export` command for data backup
-
-### 7.2 Configuration Management
+### 6.2 Advanced Configuration
 - [ ] Add comprehensive environment variable support
 - [ ] Implement configuration file validation
 - [ ] Create configuration templates
@@ -170,7 +150,27 @@ documentation aggregation.
 - [ ] Implement configuration hot-reloading
 - [ ] Add configuration documentation
 
-### 7.3 Monitoring and Observability
+## Phase 7: AI Integration Preparation 🤖
+
+### 7.1 Content Vectorization
+- [ ] Research and choose embedding model (OpenAI, local models)
+- [ ] Implement document chunking strategy
+- [ ] Add vector embedding generation
+- [ ] Create vector storage system
+- [ ] Implement similarity search
+- [ ] Add embedding update mechanisms
+
+### 7.2 AI-Ready Content Structure
+- [ ] Extract and store document metadata for AI context
+- [ ] Create content summaries and abstractions
+- [ ] Implement content classification system
+- [ ] Add AI-powered search endpoints
+- [ ] Create Q&A system foundation
+- [ ] Implement content recommendation system
+
+## Phase 8: Production Deployment 🚀
+
+### 8.1 Monitoring and Observability
 - [ ] Add structured logging with `tracing`
 - [ ] Implement metrics collection (Prometheus format)
 - [ ] Create health check endpoints
@@ -178,23 +178,13 @@ documentation aggregation.
 - [ ] Implement alerting system
 - [ ] Create operational dashboards
 
-## Phase 8: Deployment and Scaling 🚀
-
-### 8.1 Production Readiness
+### 8.2 Production Readiness
 - [ ] Create Docker containerization
 - [ ] Implement graceful shutdown procedures
 - [ ] Add resource limit configuration
 - [ ] Create deployment scripts/manifests
 - [ ] Implement zero-downtime deployments
 - [ ] Add backup and disaster recovery procedures
-
-### 8.2 Scalability Considerations
-- [ ] Design for horizontal scaling (stateless processing)
-- [ ] Implement load balancing strategy
-- [ ] Add database read replicas support
-- [ ] Create distributed job processing
-- [ ] Implement caching layers (Redis/Memcached)
-- [ ] Add auto-scaling configuration
 
 ### 8.3 Security Hardening
 - [ ] Implement input validation and sanitization
@@ -204,52 +194,98 @@ documentation aggregation.
 - [ ] Add vulnerability scanning
 - [ ] Create security incident response procedures
 
+## Phase 9: Scaling and Optimization ⚡
+
+### 9.1 Performance Optimization
+- [ ] Implement caching layers (Redis/Memcached) - **Optional**
+- [ ] Add database read replicas support
+- [ ] Create distributed job processing
+- [ ] Implement auto-scaling configuration
+- [ ] Add performance monitoring and optimization
+
+### 9.2 Advanced API Features
+- [ ] Add OpenAPI/Swagger documentation
+- [ ] Create API integration tests
+- [ ] Implement API rate limiting
+- [ ] Add API authentication/authorization
+- [ ] Create API monitoring and logging
+- [ ] Add API versioning strategy
+
 ## Testing Strategy 🧪
 
 ### Unit Testing
 - [ ] Test GitHub API integration
-- [ ] Test webhook payload processing
+- [ ] Test CLI commands and processing logic
 - [ ] Test fragment generation logic
-- [ ] Test database operations
-- [ ] Test search functionality
+- [ ] Test configuration validation
+- [ ] Test search functionality (file-based and database)
 
 ### Integration Testing
+- [ ] Test CLI end-to-end processing flows
 - [ ] Test webhook end-to-end flow
 - [ ] Test API endpoints with HTMX
-- [ ] Test database migrations
-- [ ] Test real-time update system
+- [ ] Test database migrations (when applicable)
 - [ ] Test error handling scenarios
 
 ### Performance Testing
+- [ ] Benchmark CLI processing for large repositories
 - [ ] Load test webhook processing
 - [ ] Stress test search functionality
 - [ ] Test concurrent repository processing
-- [ ] Benchmark fragment generation
 - [ ] Test database performance under load
 
 ## Success Metrics 📊
-- [ ] Webhook processing latency < 2 seconds
-- [ ] Search response time < 500ms
-- [ ] 99.9% uptime for webhook endpoint
-- [ ] Support for 100+ repositories
-- [ ] Fragment generation time < 5 seconds per repository
-- [ ] Database query performance < 100ms average
 
-## Dependencies to Add 📦
-- [ ] `axum` or `warp` - Web framework
-- [ ] `sqlx` - Database integration
+### CLI Metrics
+- [ ] Repository processing time < 30 seconds for typical repos
+- [ ] Fragment generation time < 5 seconds per repository
+- [ ] Search response time < 200ms for file-based search
+- [ ] Support for 100+ repositories in batch processing
+
+### Webhook/API Metrics
+- [ ] Webhook processing latency < 2 seconds
+- [ ] API search response time < 500ms
+- [ ] 99.9% uptime for webhook endpoint
+- [ ] Database query performance < 100ms average (when applicable)
+
+## Dependencies 📦
+
+### Core Dependencies (Required)
+- [x] `axum` - Web framework
 - [ ] `pulldown-cmark` - Markdown parsing
-- [ ] `tokio-tungstenite` - WebSocket support
+- [x] `clap` - CLI framework
+- [ ] `tokio` - Async runtime
+- [x] `serde` - Serialization
+- [x] `tracing` - Logging
+
+### Optional Dependencies (Feature-dependent)
+- [ ] `sqlx` - Database integration (optional)
+- [ ] `tokio-tungstenite` - WebSocket support (optional)
 - [ ] `redis` - Caching (optional)
-- [ ] `prometheus` - Metrics collection
+- [ ] `prometheus` - Metrics collection (optional)
 
 ---
 
-## Getting Started
-1. Begin with Phase 1.1 (HTTP Server Setup)
-2. Set up basic webhook endpoint before adding complexity
-3. Test each phase thoroughly before moving to the next
-4. Keep the existing CLI functionality working throughout development
-5. Consider creating feature branches for each major phase
+## Development Approach
 
-**Estimated Timeline: 8-12 weeks for full implementation**
+### CLI-First Development
+1. **Start with CLI processing** - Get core functionality working standalone
+2. **File-based output first** - Don't require database for initial development
+3. **Progressive enhancement** - Add database and webhook features incrementally
+4. **Dual-mode architecture** - Ensure both CLI and webhook modes share core logic
+
+### Modular Design Principles
+- **Separation of concerns** - Processing logic independent of input/output methods
+- **Optional dependencies** - Database and advanced features should be optional
+- **Flexible output** - Support both file-based and database storage
+- **Testable components** - Each phase should be testable independently
+
+### Getting Started (Revised)
+1. **Phase 1.1** - Enhanced CLI commands for complete repository processing
+2. **Phase 1.2** - Core document processing pipeline (works without database)
+3. **Phase 2** - HTML fragment generation with file-based output
+4. **Phase 3** - HTTP server for serving generated fragments
+5. **Phases 4-5** - Add database and webhook features incrementally
+
+**Estimated Timeline: 10-14 weeks for full implementation**
+**MVP Timeline: 4-6 weeks (CLI + file-based fragment generation + basic HTTP serving)**

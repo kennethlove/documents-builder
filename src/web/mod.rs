@@ -97,7 +97,7 @@ pub fn create_app() -> Router {
 
 async fn error_handling_middleware(
     request: http::Request<Body>,
-    next: middleware::Next<Body>,
+    next: middleware::Next,
 ) -> Response {
     let uri = request.uri().clone();
     let method = request.method().clone();
@@ -228,11 +228,14 @@ pub async fn start_server(port: u16) -> Result<(), Box<dyn std::error::Error + S
     let app = create_app();
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
+    let listener = tokio::net::TcpListener::bind(addr).await.map_err(|e| {
+        error!("Failed to bind to address {}: {}", addr, e);
+        e
+    })?;
     info!("Server starting on http://0.0.0.0:{}", port);
     info!("Press Ctrl+C to stop the server");
 
-    axum::Server::bind(&addr)
-        .serve(app.into_make_service())
+    axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
         .await
         .map_err(|e| {
