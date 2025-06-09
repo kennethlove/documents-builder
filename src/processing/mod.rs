@@ -5,9 +5,6 @@ use std::collections::HashMap;
 use thiserror::Error;
 use tracing::{debug, error, info, warn};
 
-// pub mod fragments;
-// pub mod output;
-
 #[derive(Error, Debug)]
 pub enum ProcessingError {
     #[error("GitHub API error: {0}")]
