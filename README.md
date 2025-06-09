@@ -23,16 +23,17 @@ references = { title = "References", sub_documents = [
 Then write documents in Markdown format in the specified paths. Each document will be processed
 and included in the final output.
 
-# Building the Documentation
+# Validating the Configuration
 
-To confirm that a project is ready, run the following command:
+To validate the configuration of your project, run:
 
 ```bash
-documents-builder scan <repository-name>
+documents-builder validate <repository-name>
 ```
 
-This will scan the repository for the `documents.toml` file and validate its structure.
-Fix any errors reported by the command.
+This will check the `documents.toml` file for correctness.
+
+Use `--check-files` to ensure that all specified documents exist.
 
 # Generating HTML Fragments
 

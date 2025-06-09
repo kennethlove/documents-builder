@@ -36,9 +36,6 @@ enum Commands {
         #[arg(long, help = "Verbose progress reporting")]
         verbose: bool,
     },
-    Scan {
-        repository: String,
-    },
     Serve {
         #[arg(long, default_value = "3000")]
         port: u16,
@@ -184,12 +181,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 }
             }
         }
-        Some(Commands::Scan { repository }) => {
-            let _ = tracing_subscriber::fmt::try_init();
-
-            let config = github.get_project_config(repository.as_str()).await?;
-            dbg!(&config);
-        }
         Some(Commands::Serve { port , ..}) => {
             tracing::info!("Starting documentation webhook server");
             tracing::info!("Server will listen on http://0.0.0.0:{}", port);
@@ -230,8 +221,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
                 if !result.warnings.is_empty() {
                     tracing::warn!("Configuration file has warnings:");
-                    for warning in result.warnings {
+                    println!("Configuration file has warnings:");
+                    for warning in &result.warnings {
                         tracing::warn!(" - {}", warning);
+                        println!(" - {}", warning);
                     }
                 }
 
@@ -265,8 +258,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
                 if !result.warnings.is_empty() {
                     tracing::warn!("Configuration file has warnings:");
-                    for warning in result.warnings {
+                    println!("Configuration file has warnings:");
+                    for warning in &result.warnings {
                         tracing::warn!(" - {}", warning);
+                        println!(" - {}", warning);
                     }
                 }
 
