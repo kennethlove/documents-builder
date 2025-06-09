@@ -25,8 +25,19 @@ and included in the final output.
 
 # Building the Documentation
 
-To build the documentation, run the following command:
+To confirm that a project is ready, run the following command:
 
 ```bash
 documents-builder scan <repository-name>
+```
+
+This will scan the repository for the `documents.toml` file and validate its structure.
+Fix any errors reported by the command.
+
+# Generating HTML Fragments
+
+To generate HTML fragments from the Markdown documents, run:
+
+```bash
+documents-builder process-repo <repository-name>
 ```
