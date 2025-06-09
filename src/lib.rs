@@ -8,9 +8,9 @@ pub mod web;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct DocumentConfig {
-    title: String,
-    path: Option<PathBuf>,
-    sub_documents: Option<Vec<DocumentConfig>>
+    pub title: String,
+    pub path: Option<PathBuf>,
+    pub sub_documents: Option<Vec<DocumentConfig>>
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
