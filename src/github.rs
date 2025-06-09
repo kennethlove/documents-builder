@@ -177,4 +177,16 @@ impl GitHubClient {
 
         Ok(decoded_content)
     }
+    
+    pub async fn file_exists(&self, repo_name: &str, file_path: &str) -> Result<bool, GitHubError> {
+        let content = self.client
+            .repos(&self.organization, repo_name)
+            .get_content()
+            .path(file_path)
+            .send()
+            .await
+            .map_err(GitHubError::ApiError)?;
+
+        Ok(!content.items.is_empty())
+    }
 }

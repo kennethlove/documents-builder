@@ -5,6 +5,8 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use documents::github::{load_config, GitHubClient, GitHubError};
 use documents::processing::RepositoryProcessor;
+use documents::DocumentConfig;
+use documents::processing::ConfigValidator;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -43,6 +45,14 @@ enum Commands {
         #[arg(long, default_value = "info")]
         log_level: String,
     },
+    ValidateConfig {
+        /// GitHub repository to validate configuration for
+        repository: String,
+        #[arg(short, long, help = "Check if referenced files actually exist in the repository")]
+        check_files: bool,
+        #[arg(short, long, help = "Base directory for resolving relative paths in the config file (defaults to repository root)")]
+        base_dir: Option<String>,
+    }
 }
 
 // Load configuration from the environment or file
@@ -187,6 +197,83 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             tracing::info!("GitHub webhook endpoint at http://0.0.0.0:{}/webhooks/github", port);
             documents::web::start_server(port).await?;
         }
+        Some(Commands::ValidateConfig { repository, check_files, base_dir }) => {
+            tracing::info!("Validating configuration for repository: {}", repository);
+
+            // Fetch the configuration file from GitHub
+            let config = match github.get_project_config(repository.as_str()).await {
+                Ok(config) => config,
+                Err(GitHubError::ConfigFileNotFound(_)) => {
+                    tracing::error!("No configuration file found in repository: {}", repository);
+                    eprintln!("No configuration file found in repository: {}", repository);
+                    std::process::exit(1);
+                }
+                Err(e) => {
+                    tracing::error!("Error retrieving configuration for repository {}: {}", repository, e);
+                    eprintln!("Error retrieving configuration for repository {}: {}", repository, e);
+                    std::process::exit(1);
+                }
+            };
+
+            let mut validator = ConfigValidator::new();
+
+            if check_files {
+                let base_path = base_dir.as_deref().unwrap_or(".");
+                tracing::info!("Checking file existence in repository relative to: {}", base_path);
+                validator = validator.with_github_file_check(&github, &repository, &base_path);
+            }
+
+            let result = validator.validate(&config).await;
+
+            if result.is_valid {
+                tracing::info!("Configuration for {} is valid.", repository);
+
+                if !result.warnings.is_empty() {
+                    tracing::warn!("Configuration file has warnings:");
+                    for warning in result.warnings {
+                        tracing::warn!(" - {}", warning);
+                    }
+                }
+
+                println!("Configuration for {} is valid.", repository);
+                println!("Summary:");
+                println!(" - Project: {}", config.project.name);
+                println!(" - Description: {}", config.project.description);
+                println!(" - Documents: {}", config.documents.len());
+
+                let total_paths: usize = config.documents.values()
+                    .map(|doc| count_document_paths(doc))
+                    .sum();
+
+                if total_paths > 0 {
+                    println!(" - Total document paths: {}", total_paths);
+                } else {
+                    println!(" - No document paths found.");
+                }
+
+                std::process::exit(0);
+            } else {
+                tracing::info!("Configuration for {} is invalid.", repository);
+
+                println!("Configuration for {} is invalid.", repository);
+                if !result.errors.is_empty() {
+                    tracing::error!("Configuration file has errors:");
+                    for error in result.errors {
+                        tracing::error!(" - {}", error);
+                    }
+                }
+
+                if !result.warnings.is_empty() {
+                    tracing::warn!("Configuration file has warnings:");
+                    for warning in result.warnings {
+                        tracing::warn!(" - {}", warning);
+                    }
+                }
+
+                std::process::exit(1);
+            }
+
+        }
         None => {
             let _ = tracing_subscriber::fmt::try_init();
             tracing::info!("No command provided. Use --help to see available commands.");
@@ -194,4 +281,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     }
 
     Ok(())
+}
+
+fn count_document_paths(document: &DocumentConfig) -> usize {
+    let mut count = 0;
+
+    if document.path.is_some() {
+        count += 1;
+    }
+
+    if let Some(sub_docs) = &document.sub_documents {
+        count += sub_docs.iter().map(count_document_paths).sum::<usize>();
+    }
+
+    count
 }

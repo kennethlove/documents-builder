@@ -1,3 +1,6 @@
+pub mod validate_config;
+pub use validate_config::ConfigValidator;
+
 use crate::github::GitHubClient;
 use crate::ProjectConfig;
 use serde::{Deserialize, Serialize};
