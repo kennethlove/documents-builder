@@ -56,6 +56,7 @@ pub fn load_config() -> Result<Config, GitHubError> {
     Ok(config)
 }
 
+#[derive(Clone, Debug)]
 pub struct GitHubClient {
     pub client: Octocrab,
     pub organization: String,
