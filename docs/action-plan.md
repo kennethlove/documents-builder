@@ -9,7 +9,7 @@ and webhook-driven real-time updates for production use.
 
 ### 1.1 Enhanced CLI Commands
 - [x] Basic CLI structure with `scan`, `list-all`, and `serve` commands
-- [ ] Add `process-repo` command for complete repository processing
+- [x] Add `process-repo` command for complete repository processing
 - [ ] Implement `process-batch` command for multiple repositories
 - [x] Add `validate-config` command for configuration testing
 - [ ] Create `export-fragments` command for file-based output

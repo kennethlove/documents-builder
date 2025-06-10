@@ -1,4 +1,13 @@
 pub mod validate_config;
+pub mod pipeline;
+pub mod discovery;
+pub mod validation;
+pub mod processor;
+
+pub use pipeline::{
+    DocumentProcessingPipeline, ProcessingContext, ProcessedDocument,
+    Heading, Link, Image, CodeBlock, ProcessingMetadata, PipelineError
+};
 pub use validate_config::ConfigValidator;
 
 use crate::github::GitHubClient;
@@ -48,6 +57,7 @@ pub enum FragmentType {
     Navigation,
 }
 
+#[derive(Clone, Debug)]
 pub struct RepositoryProcessor {
     github: GitHubClient,
     config: ProjectConfig,

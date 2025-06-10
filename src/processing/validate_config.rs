@@ -465,10 +465,6 @@ mod tests {
     use std::collections::HashMap;
     use std::path::PathBuf;
     use crate::ProjectDetails;
-    use crate::github::GitHubClient;
-    use std::sync::Arc;
-    use std::sync::Mutex;
-
 
     fn create_test_config() -> ProjectConfig {
         ProjectConfig {
