@@ -10,7 +10,7 @@ pub use pipeline::{
 };
 pub use validate_config::ConfigValidator;
 
-use crate::github::{Client, GitHubClient};
+use crate::github::Client;
 use crate::ProjectConfig;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

@@ -12,7 +12,7 @@ and webhook-driven real-time updates for production use.
 - [x] Add `process-repo` command for complete repository processing
 - [ ] Implement `process-batch` command for multiple repositories
 - [x] Add `validate-config` command for configuration testing
-- [ ] Create `export-fragments` command for file-based output
+- [x] Create `export-fragments` command for file-based output
 - [ ] Implement `search` command for testing search functionality
 - [ ] Add `status` command for system health (works offline)
 
