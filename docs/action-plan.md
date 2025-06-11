@@ -17,12 +17,12 @@ and webhook-driven real-time updates for production use.
 - [ ] Add `status` command for system health (works offline)
 
 ### 1.2 Core Document Processing Engine
-- [ ] Refactor existing `get_project_config` into modular processing pipeline
-- [ ] Implement markdown file fetching and processing
+- [x] Refactor existing `get_project_config` into modular processing pipeline
+- [x] Implement markdown file fetching and processing
 - [ ] Add support for different markdown file patterns (glob, regex)
-- [ ] Create markdown content validation and frontmatter parsing
-- [ ] Implement markdown preprocessing (link resolution, image handling)
-- [ ] Add processing progress reporting for CLI users
+- [x] Create markdown content validation and frontmatter parsing
+- [x] Implement markdown preprocessing (link resolution, image handling)
+- [x] Add processing progress reporting for CLI users
 
 ### 1.3 Output Management (File-based and Database)
 - [ ] Design flexible output system (files vs database)
