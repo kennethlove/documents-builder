@@ -200,6 +200,10 @@ pub enum AppError {
     NotFound(String),
     #[error("Service Unavailable: {0}")]
     ServiceUnavailable(String),
+    #[error("IO Error: {0}")]
+    IoError(#[from] std::io::Error),
+    #[error("JSON Serialization Error: {0}")]
+    SerializationError(#[from] serde_json::Error),
 }
 
 impl IntoResponse for AppError {
@@ -209,6 +213,8 @@ impl IntoResponse for AppError {
             AppError::InternalServerError(msg) => (StatusCode::INTERNAL_SERVER_ERROR, "internal_server_error", msg),
             AppError::NotFound(msg) => (StatusCode::NOT_FOUND, "not_found", msg),
             AppError::ServiceUnavailable(msg) => (StatusCode::SERVICE_UNAVAILABLE, "service_unavailable", msg),
+            AppError::IoError(msg) => (StatusCode::INTERNAL_SERVER_ERROR, "io_error", &msg.to_string()),
+            AppError::SerializationError(msg) => (StatusCode::INTERNAL_SERVER_ERROR, "serialization_error", &msg.to_string()),
         };
 
         let error_response = ErrorResponse {
