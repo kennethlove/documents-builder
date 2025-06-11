@@ -124,8 +124,91 @@ impl<'a> ContentValidator<'a> {
 mod tests {
     use super::*;
     use crate::ProjectDetails;
-    use crate::github::GitHubClient;
+    use crate::github::{Client, GitHubClient, GitHubError};
     use std::collections::HashMap;
+    use std::path::PathBuf;
+    use std::sync::Arc;
+    use async_trait::async_trait;
+
+    // Mock implementation of the Client trait for testing
+    struct MockGitHubClient {
+        file_contents: HashMap<String, String>,
+    }
+
+    impl MockGitHubClient {
+        fn new() -> Self {
+            Self {
+                file_contents: HashMap::new(),
+            }
+        }
+
+        fn add_file(&mut self, path: &str, content: &str) {
+            self.file_contents.insert(path.to_string(), content.to_string());
+        }
+    }
+
+    // Helper function to create a dummy GitHubClient for tests
+    fn create_dummy_github_client() -> GitHubClient {
+        let client = octocrab::Octocrab::builder().build().unwrap();
+        GitHubClient {
+            client,
+            organization: "test-org".to_string(),
+        }
+    }
+
+    #[async_trait]
+    impl Client for MockGitHubClient {
+        async fn current_user(&self) -> Result<String, GitHubError> {
+            Ok("test-user".to_string())
+        }
+
+        async fn handle_rate_limits(&self) -> Result<(), GitHubError> {
+            Ok(())
+        }
+
+        async fn repositories(&self) -> Result<Vec<String>, GitHubError> {
+            Ok(vec!["test-repo".to_string()])
+        }
+
+        async fn scan_for_config_file(&self, _repo_name: &str) -> Result<Option<String>, GitHubError> {
+            Ok(Some("documents.toml".to_string()))
+        }
+
+        async fn read_config_file(&self, _repo_name: &str) -> Result<String, GitHubError> {
+            Ok("[project]\nname = \"Test Project\"\ndescription = \"A test project\"".to_string())
+        }
+
+        async fn get_project_config(&self, _repo_name: &str) -> Result<crate::ProjectConfig, GitHubError> {
+            let mut documents = HashMap::new();
+            documents.insert(
+                "doc1".to_string(),
+                crate::DocumentConfig {
+                    title: "Document 1".to_string(),
+                    path: Some(PathBuf::from("docs/file1.md")),
+                    sub_documents: None,
+                },
+            );
+
+            Ok(crate::ProjectConfig {
+                project: crate::ProjectDetails {
+                    name: "Test Project".to_string(),
+                    description: "A test project".to_string(),
+                },
+                documents,
+            })
+        }
+
+        async fn get_file_content(&self, _repo_name: &str, file_path: &str) -> Result<String, GitHubError> {
+            match self.file_contents.get(file_path) {
+                Some(content) => Ok(content.clone()),
+                None => Err(GitHubError::FileNotFound(format!("File not found: {}", file_path)))
+            }
+        }
+
+        async fn file_exists(&self, _repo_name: &str, file_path: &str) -> Result<bool, GitHubError> {
+            Ok(self.file_contents.contains_key(file_path))
+        }
+    }
 
     // Helper function to create a test ProcessingContext
     fn create_test_context() -> ProcessingContext {
@@ -137,13 +220,15 @@ mod tests {
             documents: HashMap::new(),
         };
 
-        let github_client = GitHubClient {
-            client: octocrab::Octocrab::default(),
-            organization: "test-org".to_string(),
-        };
+        // Create a mock GitHub client
+        let mock_client = MockGitHubClient::new();
 
+        // Wrap the mock client in an Arc
+        let github_client = Arc::new(mock_client);
+
+        // Create a repository processor with a dummy GitHub client
         let processor = crate::processing::RepositoryProcessor::new(
-            github_client.clone(),
+            create_dummy_github_client(),
             config.clone(),
             "test-repo".to_string()
         );

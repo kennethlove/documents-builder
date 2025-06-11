@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::path::Path;
 use crate::{DocumentConfig, ProjectConfig};
-use crate::github::GitHubClient;
+use crate::github::{Client, GitHubClient};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ValidationError {

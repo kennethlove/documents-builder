@@ -3,7 +3,7 @@ use clap::{Parser, Subcommand};
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
-use documents::github::{load_config, GitHubClient, GitHubError};
+use documents::github::{load_config, Client, GitHubClient, GitHubError};
 use documents::processing::RepositoryProcessor;
 use documents::DocumentConfig;
 use documents::processing::ConfigValidator;

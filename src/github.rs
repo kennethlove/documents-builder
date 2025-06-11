@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use octocrab::{Octocrab, OctocrabBuilder};
 use serde::{Deserialize};
 use crate::ProjectConfig;
@@ -15,19 +16,19 @@ pub enum GitHubError {
 
     #[error("API error: {0}")]
     ApiError(#[from] octocrab::Error),
-    
+
     #[error("Repository not found: {0}")]
     RepositoryNotFound(String),
-    
+
     #[error("Configuration file not found in repository: {0}")]
     ConfigFileNotFound(String),
-    
+
     #[error("Failed to read configuration file: {0}")]
     ConfigFileReadError(String),
-    
+
     #[error("Config file is empty in repository: {0}")]
     ConfigFileEmpty(String),
-    
+
     #[error("Environment variable not set: {0}")]
     EnvVarNotSet(#[from] std::env::VarError),
     #[error("Failed to request file: {0}")]
@@ -36,6 +37,25 @@ pub enum GitHubError {
     FileNotFound(String),
     #[error("Failed to decode content for file: {0}")]
     InvalidFormat(String),
+}
+
+#[async_trait]
+pub trait Client {
+    async fn current_user(&self) -> Result<String, GitHubError>;
+
+    async fn handle_rate_limits(&self) -> Result<(), GitHubError>;
+
+    async fn repositories(&self) -> Result<Vec<String>, GitHubError>;
+
+    async fn scan_for_config_file(&self, repo_name: &str) -> Result<Option<String>, GitHubError>;
+
+    async fn read_config_file(&self, repo_name: &str) -> Result<String, GitHubError>;
+
+    async fn get_project_config(&self, repo_name: &str) -> Result<ProjectConfig, GitHubError>;
+
+    async fn get_file_content(&self, repo_name: &str, file_path: &str) -> Result<String, GitHubError>;
+
+    async fn file_exists(&self, repo_name: &str, file_path: &str) -> Result<bool, GitHubError>;
 }
 
 #[derive(Debug, Deserialize)]
@@ -73,14 +93,17 @@ impl GitHubClient {
             organization: config.organization.clone(),
         })
     }
+}
 
-    pub async fn current_user(&self) -> Result<String, GitHubError> {
+#[async_trait]
+impl Client for GitHubClient {
+    async fn current_user(&self) -> Result<String, GitHubError> {
         // Test authentication by making a simple API call
         let current_user = self.client.current().user().await?;
         Ok(current_user.login)
     }
 
-    pub async fn handle_rate_limits(&self) -> Result<(), GitHubError> {
+    async fn handle_rate_limits(&self) -> Result<(), GitHubError> {
         let rate_limit = self.client
             .ratelimit()
             .get()
@@ -93,8 +116,8 @@ impl GitHubClient {
 
         Ok(())
     }
-    
-    pub async fn repositories(&self) -> Result<Vec<String>, GitHubError> {
+
+    async fn repositories(&self) -> Result<Vec<String>, GitHubError> {
         let repos = self.client
             .orgs(&self.organization)
             .list_repos()
@@ -104,8 +127,8 @@ impl GitHubClient {
 
         Ok(repos.items.into_iter().map(|repo| repo.name).collect())
     }
-    
-    pub async fn scan_for_config_file(&self, repo_name: &str) -> Result<Option<String>, GitHubError> {
+
+    async fn scan_for_config_file(&self, repo_name: &str) -> Result<Option<String>, GitHubError> {
         let repo_name = repo_name.trim();
         let contents = self.client
             .repos(&self.organization, repo_name)
@@ -114,11 +137,11 @@ impl GitHubClient {
             .send()
             .await
             .map_err(|_| { GitHubError::ConfigFileNotFound(repo_name.to_string())})?;
-        
+
         if contents.items.is_empty() {
             return Ok(None);
         }
-        
+
         // Check if the file exists in the repository
         let mut url = String::new();
         for item in contents.items {
@@ -129,8 +152,8 @@ impl GitHubClient {
         }
         Ok(Some(url))
     }
-    
-    pub async fn read_config_file(&self, repo_name: &str) -> Result<String, GitHubError> {
+
+    async fn read_config_file(&self, repo_name: &str) -> Result<String, GitHubError> {
         let contents = self.client
             .repos(&self.organization, repo_name)
             .get_content()
@@ -145,11 +168,11 @@ impl GitHubClient {
 
         let item = contents.items.first().ok_or(GitHubError::ConfigFileNotFound(repo_name.into()))?;
         let content = item.decoded_content().ok_or(GitHubError::ConfigFileReadError(repo_name.into()))?;
-        
+
         Ok(content.clone())
     }
-    
-    pub async fn get_project_config(&self, repo_name: &str) -> Result<ProjectConfig, GitHubError> {
+
+    async fn get_project_config(&self, repo_name: &str) -> Result<ProjectConfig, GitHubError> {
         if let Err(e) = self.scan_for_config_file(repo_name).await {
             return Err(e);
         }
@@ -161,7 +184,7 @@ impl GitHubClient {
         }
     }
 
-    pub async fn get_file_content(&self, repo_name: &str, file_path: &str) -> Result<String, GitHubError> {
+    async fn get_file_content(&self, repo_name: &str, file_path: &str) -> Result<String, GitHubError> {
         let content = self.client
             .repos(&self.organization, repo_name)
             .get_content()
@@ -178,8 +201,8 @@ impl GitHubClient {
 
         Ok(decoded_content)
     }
-    
-    pub async fn file_exists(&self, repo_name: &str, file_path: &str) -> Result<bool, GitHubError> {
+
+    async fn file_exists(&self, repo_name: &str, file_path: &str) -> Result<bool, GitHubError> {
         let content = self.client
             .repos(&self.organization, repo_name)
             .get_content()

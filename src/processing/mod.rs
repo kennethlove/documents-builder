@@ -10,10 +10,11 @@ pub use pipeline::{
 };
 pub use validate_config::ConfigValidator;
 
-use crate::github::GitHubClient;
+use crate::github::{Client, GitHubClient};
 use crate::ProjectConfig;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::Arc;
 use thiserror::Error;
 use tracing::{debug, error, info, warn};
 
@@ -57,17 +58,26 @@ pub enum FragmentType {
     Navigation,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct RepositoryProcessor {
-    github: GitHubClient,
+    github: Arc<dyn Client + Send + Sync>,
     config: ProjectConfig,
     repository: String,
 }
 
+impl std::fmt::Debug for RepositoryProcessor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RepositoryProcessor")
+            .field("config", &self.config)
+            .field("repository", &self.repository)
+            .finish()
+    }
+}
+
 impl RepositoryProcessor {
-    pub fn new(github: GitHubClient, config: ProjectConfig, repository: String) -> Self {
+    pub fn new(github: impl Client + Send + Sync + 'static, config: ProjectConfig, repository: String) -> Self {
         RepositoryProcessor {
-            github,
+            github: Arc::new(github),
             config,
             repository,
         }
