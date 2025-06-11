@@ -1,6 +1,18 @@
+use clap::Args;
 use crate::count_document_paths;
 use crate::github::{Client, GitHubClient, GitHubError};
 use crate::processing::ConfigValidator;
+use crate::web::AppError;
+
+#[derive(Args, Debug)]
+pub struct ValidateConfigArgs {
+    /// GitHub repository to validate configuration for
+    repository: String,
+    #[arg(short, long, help = "Check if referenced files actually exist in the repository")]
+    check_files: bool,
+    #[arg(short, long, help = "Base directory for resolving relative paths in the config file (defaults to repository root)")]
+    base_dir: Option<String>,
+}
 
 pub struct ValidateConfigCommand {
     repository: String,
@@ -9,15 +21,15 @@ pub struct ValidateConfigCommand {
 }
 
 impl ValidateConfigCommand {
-    pub fn new(repository: String, check_files: bool, base_dir: Option<String>) -> Self {
+    pub fn new(args: ValidateConfigArgs) -> Self {
         Self {
-            repository,
-            check_files,
-            base_dir,
+            repository: args.repository,
+            check_files: args.check_files,
+            base_dir: args.base_dir,
         }
     }
 
-    pub async fn execute(&self, client: GitHubClient) -> Result<(), String> {
+    pub async fn execute(&self, client: &GitHubClient) -> Result<(), AppError> {
         tracing::info!("Validating configuration for repository: {}", self.repository);
 
         // Fetch the configuration file from GitHub

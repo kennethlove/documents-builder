@@ -1,8 +1,31 @@
 use std::path::PathBuf;
+use clap::Args;
 use crate::github::{Client, GitHubClient, GitHubError};
 use crate::OutputFormat;
 use crate::processing::RepositoryProcessor;
 use crate::web::AppError;
+
+#[derive(Args, Debug)]
+pub struct ProcessRepositoryArgs {
+    /// GitHub repository to process
+    pub repository: String,
+
+    /// Output directory for generated fragments
+    #[arg(long, short, help = "Output directory for generated fragments")]
+    pub output: Option<PathBuf>,
+
+    /// Output format (files, json, html)
+    #[arg(long, value_enum, default_value = "files", help = "Output format")]
+    pub format: OutputFormat,
+
+    /// Force reprocessing even if output exists
+    #[arg(long, help = "Force reprocessing even if output exists")]
+    pub force: bool,
+
+    /// Verbose progress reporting
+    #[arg(long, help = "Verbose progress reporting")]
+    pub verbose: bool,
+}
 
 pub struct ProcessRepositoryCommand {
     repository: String,
@@ -13,13 +36,13 @@ pub struct ProcessRepositoryCommand {
 }
 
 impl ProcessRepositoryCommand {
-    pub fn new(repository: String, output: Option<PathBuf>, format: OutputFormat, force: bool, verbose: bool) -> Self {
+    pub fn new(args: ProcessRepositoryArgs) -> Self {
         Self {
-            repository,
-            output,
-            format,
-            force,
-            verbose,
+            repository: args.repository,
+            output: args.output,
+            format: args.format,
+            force: args.force,
+            verbose: args.verbose,
         }
     }
 

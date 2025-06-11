@@ -3,13 +3,13 @@ use clap::{Parser, Subcommand};
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
+use documents::commands::export_fragments::{ExportFragmentsArgs, ExportFragmentsCommand};
 use documents::commands::list_all::ListAllCommand;
-use documents::commands::process_repository::ProcessRepositoryCommand;
-use documents::commands::serve_webhook::ServeWebhookCommand;
-use documents::commands::validate_config::ValidateConfigCommand;
-use documents::github::{load_config, Client, GitHubClient, GitHubError};
+use documents::commands::process_repository::{ProcessRepositoryArgs, ProcessRepositoryCommand};
+use documents::commands::serve_webhook::{ServeWebhookArgs, ServeWebhookCommand};
+use documents::commands::validate_config::{ValidateConfigArgs, ValidateConfigCommand};
+use documents::github::{load_config, Client, GitHubClient};
 use documents::OutputFormat;
-use documents::processing::RepositoryProcessor;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -20,46 +20,11 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
-    ExportFragments {
-        /// GitHub repository to export fragments from
-        repository: String,
-        #[arg(long, short, help = "Output directory for generated fragments")]
-        output: Option<PathBuf>,
-        #[arg(long, help = "Output format", value_enum, default_value = "files")]
-        format: OutputFormat,
-        #[arg(long, help = "Include fragment metadata in export")]
-        include_metadata: bool,
-        #[arg(long, help = "Compress exported fragments into archive")]
-        compress: bool,
-        #[arg(long, help = "Filter fragments by type (e.g., 'text', 'code')", value_delimiter = ',')]
-        fragment_type: Option<String>,
-    },
+    ExportFragments(ExportFragmentsArgs),
     ListAll,
-    ProcessRepo {
-        repository: String,
-        #[arg(long, short, help = "Output directory for generated fragments")]
-        output: Option<PathBuf>,
-        #[arg(long, help = "Output format", value_enum, default_value = "files")]
-        format: OutputFormat,
-        #[arg(long, help = "Force reprocessing even if output exists")]
-        force: bool,
-        #[arg(long, help = "Verbose progress reporting")]
-        verbose: bool,
-    },
-    Serve {
-        #[arg(long, default_value = "3000")]
-        port: u16,
-        #[arg(long, default_value = "info")]
-        log_level: String,
-    },
-    ValidateConfig {
-        /// GitHub repository to validate configuration for
-        repository: String,
-        #[arg(short, long, help = "Check if referenced files actually exist in the repository")]
-        check_files: bool,
-        #[arg(short, long, help = "Base directory for resolving relative paths in the config file (defaults to repository root)")]
-        base_dir: Option<String>,
-    }
+    ProcessRepo(ProcessRepositoryArgs),
+    Serve(ServeWebhookArgs),
+    ValidateConfig(ValidateConfigArgs),
 }
 
 // Load configuration from the environment or file
@@ -70,8 +35,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Initialize logging
     let log_level = match &cli.command {
-        Some(Commands::Serve { log_level, .. }) => log_level.clone(),
-        Some(Commands::ProcessRepo { verbose: true, .. }) => "debug".to_string(),
+        Some(Commands::Serve(ServeWebhookArgs { log_level, ..})) => log_level.clone(),
+        Some(Commands::ProcessRepo(ProcessRepositoryArgs { verbose: true, .. })) => "debug".to_string(),
         _ => "info".to_string(),
     };
 
@@ -96,24 +61,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("Using organization: {}", github.organization);
 
     match cli.command {
-        Some(Commands::ExportFragments { .. }) => {
-            tracing::warn!("The 'export-fragments' command is not implemented yet.");
-            eprintln!("The 'export-fragments' command is not implemented yet.");
-            std::process::exit(1);
+        Some(Commands::ExportFragments(args)) => {
+            let command = ExportFragmentsCommand::new(args);
+            command.execute(&github).await?;
         }
         Some(Commands::ListAll) => {
             ListAllCommand::execute(&github).await?;
         }
-        Some(Commands::ProcessRepo { repository, output, format, force, verbose }) => {
-            let command = ProcessRepositoryCommand::new(repository, output, format, force, verbose);
+        Some(Commands::ProcessRepo(args)) => {
+            let command = ProcessRepositoryCommand::new(args);
             command.execute(&github).await?;
         }
-        Some(Commands::Serve { port , log_level }) => {
-            ServeWebhookCommand::execute(port, log_level).await?;
+        Some(Commands::Serve(args)) => {
+            ServeWebhookCommand::execute(args).await?;
         }
-        Some(Commands::ValidateConfig { repository, check_files, base_dir }) => {
-            let command = ValidateConfigCommand::new(repository, check_files, base_dir);
-            command.execute(github).await?
+        Some(Commands::ValidateConfig(args)) => {
+            let command = ValidateConfigCommand::new(args);
+            command.execute(&github).await?
         }
         None => {
             let _ = tracing_subscriber::fmt::try_init();
