@@ -6,6 +6,7 @@ pub mod github;
 pub mod processing;
 pub mod web;
 pub mod commands;
+mod output;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct DocumentConfig {

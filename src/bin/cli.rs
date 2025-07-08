@@ -1,4 +1,3 @@
-use std::path::PathBuf;
 use clap::{Parser, Subcommand};
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::layer::SubscriberExt;
@@ -9,7 +8,6 @@ use documents::commands::process_repository::{ProcessRepositoryArgs, ProcessRepo
 use documents::commands::serve_webhook::{ServeWebhookArgs, ServeWebhookCommand};
 use documents::commands::validate_config::{ValidateConfigArgs, ValidateConfigCommand};
 use documents::github::{load_config, Client, GitHubClient};
-use documents::OutputFormat;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
