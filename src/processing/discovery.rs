@@ -1,8 +1,29 @@
+use std::collections::HashSet;
+use regex::Regex;
 use tracing::debug;
 use crate::processing::pipeline::{DiscoveredFile, PipelineError, ProcessingContext};
 
 pub struct FileDiscoverer<'a> {
     context: &'a ProcessingContext,
+}
+
+#[derive(Debug, Clone)]
+pub enum PatternType {
+    Glob(String), // e.g. "docs/**/*.md"
+    Regex(String), // e.g. "^docs/.*\.md$"
+    Exact(String), // e.g. "README.md"
+}
+
+impl PatternType {
+    pub fn from_string(pattern: &str) -> Self {
+        if pattern.starts_with("regex:") {
+            PatternType::Regex(pattern.strip_prefix("regex:").unwrap().to_string())
+        } else if pattern.contains("*") || pattern.contains("?") || pattern.contains("[") {
+            PatternType::Glob(pattern.to_string())
+        } else {
+            PatternType::Exact(pattern.to_string())
+        }
+    }
 }
 
 impl<'a> FileDiscoverer<'a> {
@@ -34,8 +55,6 @@ impl<'a> FileDiscoverer<'a> {
                     }
                 }
             }
-            // TODO: Add support for glob and regex patterns in the future
-            // e.g. "docs/**/*.md" or "^docs/.*\.md$"
         }
 
         // Discover markdown files using common patterns
@@ -57,17 +76,19 @@ impl<'a> FileDiscoverer<'a> {
 
         // Common patterns to look for
         let patterns = vec![
-            "README.md",
-            "CONTRIBUTING.md",
-            "CHANGELOG.md",
-            "docs/**/*.md",
+            PatternType::Exact("README.md".to_string()),
+            PatternType::Exact("CONTRIBUTING.md".to_string()),
+            PatternType::Exact("CHANGELOG.md".to_string()),
+            PatternType::Glob("docs/**/*.md".to_string()),
+            PatternType::Glob("*.md".to_string()),
+            PatternType::Regex("regex:^[A-Z]+\\.md$".to_string()), // Files like README.md, CONTRIBUTING.md, etc.
         ];
 
         for pattern in patterns {
-            if let Ok(files) = self.find_files_by_pattern(pattern).await {
+            if let Ok(files) = self.find_files_by_pattern(&pattern).await {
                 pattern_files.extend(files.into_iter().map(|path| DiscoveredFile {
                     path,
-                    pattern_source: pattern.to_string(),
+                    pattern_source: format!("pattern:{}", self.pattern_to_string(&pattern)),
                     estimated_size: None,
                 }));
             }
@@ -76,11 +97,147 @@ impl<'a> FileDiscoverer<'a> {
         Ok(pattern_files)
     }
 
-    async fn find_files_by_pattern(&self, pattern: &str) -> Result<Vec<String>, PipelineError> {
-        // For now, return empty - this would integrate with GitHub API
-        // to list repository contents and filter by the pattern.
-        debug!("Pattern discovery not implemented: {}", pattern);
-        Ok(Vec::new())
+    async fn find_files_by_pattern(&self, pattern: &PatternType) -> Result<Vec<String>, PipelineError> {
+        match pattern {
+            PatternType::Exact(path) => {
+                match self.context.github_client.file_exists(&self.context.repository, path).await {
+                    Ok(true) => Ok(vec![path.clone()]),
+                    Ok(false) => Ok(vec![]),
+                    Err(e) => {
+                        debug!("Error checking file existence for exact path {}: {}", path, e);
+                        Ok(vec![])
+                    }
+                }
+            }
+            PatternType::Glob(glob_pattern) => {
+                self.find_files_by_glob(glob_pattern).await
+            }
+            PatternType::Regex(regex_pattern) => {
+                self.find_files_by_regex(regex_pattern).await
+            }
+        }
+    }
+
+    async fn find_files_by_glob(&self, glob_pattern: &str) -> Result<Vec<String>, PipelineError> {
+        let mut matching_files = Vec::new();
+        let mut visited_paths = HashSet::new();
+
+        // Parse glob pattern to understand the directory structure
+        let pattern = glob::Pattern::new(glob_pattern)
+            .map_err(|e| PipelineError::InvalidPattern(format!("Invalid glob pattern '{}': {}", glob_pattern, e)))?;
+
+        // Start recursive search from root
+        self.search_directory_recursive("", &pattern, &mut matching_files, &mut visited_paths).await?;
+
+        debug!("Found {} files matching glob pattern '{}'", matching_files.len(), glob_pattern);
+        Ok(matching_files)
+    }
+
+    async fn find_files_by_regex(&self, regex_pattern: &str) -> Result<Vec<String>, PipelineError> {
+        let regex = Regex::new(regex_pattern)
+            .map_err(|e| PipelineError::InvalidPattern(format!("Invalid regular expression '{}': {}", regex_pattern, e)))?;
+
+        let mut matching_files = Vec::new();
+        let mut visited_paths = HashSet::new();
+
+        // Start recursive search from root
+        let pin = self.search_directory_recursive_regex("", &regex, &mut matching_files, &mut visited_paths).await;
+        pin.await?;
+
+        debug!("Found {} files matching regex pattern '{}'", matching_files.len(), regex_pattern);
+        Ok(matching_files)
+    }
+
+    fn search_directory_recursive<'b>(
+        &'b self,
+        current_path: &'b str,
+        pattern: &'b glob::Pattern,
+        matching_files: &'b mut Vec<String>,
+        visited_paths: &'b mut HashSet<String>,
+    ) -> std::pin::Pin<Box<dyn Future<Output = Result<(), PipelineError>> + 'b>> {
+        Box::pin(async move {
+            if visited_paths.contains(current_path) {
+                return Ok(());
+            }
+            visited_paths.insert(current_path.to_string());
+
+            let files = match self.context.github_client.list_repository_files(&self.context.repository, Some(current_path)).await {
+                Ok(files) => files,
+                Err(e) => {
+                    debug!("Error listing files in directory '{}': {}", current_path, e);
+                    return Ok(());
+                }
+            };
+
+            for file in files {
+                let file_path = if current_path.is_empty() {
+                    file.path.clone()
+                } else {
+                    format!("{}/{}", current_path, file.name)
+                };
+
+                if file.file_type == "file" {
+                    if pattern.matches(&file_path) {
+                        matching_files.push(file_path);
+                    }
+                } else if file.file_type == "dir" {
+                    // Recursively search in subdirectories
+                    self.search_directory_recursive(&file_path, pattern, matching_files, visited_paths).await?;
+                }
+            }
+
+            Ok(())
+        })
+    }
+
+    async fn search_directory_recursive_regex<'b>(
+        &'b self,
+        current_path: &'b str,
+        regex: &'b Regex,
+        matching_files: &'b mut Vec<String>,
+        visited_paths: &'b mut HashSet<String>,
+    ) -> std::pin::Pin<Box<dyn Future<Output = Result<(), PipelineError>> + 'b>> {
+        Box::pin(async move {
+            if visited_paths.contains(current_path) {
+                return Ok(());
+            }
+            visited_paths.insert(current_path.to_string());
+
+            let files = match self.context.github_client.list_repository_files(&self.context.repository, Some(current_path)).await {
+                Ok(files) => files,
+                Err(e) => {
+                    debug!("Error listing files in directory '{}': {}", current_path, e);
+                    return Ok(());
+                }
+            };
+
+            for file in files {
+                let file_path = if current_path.is_empty() {
+                    file.path.clone()
+                } else {
+                    format!("{}/{}", current_path, file.name)
+                };
+
+                if file.file_type == "file" {
+                    if regex.is_match(&file_path) {
+                        matching_files.push(file_path);
+                    }
+                } else if file.file_type == "dir" {
+                    // Recursively search in subdirectories
+                    self.search_directory_recursive_regex(&file_path, regex, matching_files, visited_paths).await.await?;
+                }
+            }
+
+            Ok(())
+        })
+    }
+
+    fn pattern_to_string(&self, pattern: &PatternType) -> String {
+        match pattern {
+            PatternType::Glob(p) => p.clone(),
+            PatternType::Regex(p) => format!("regex:{}", p),
+            PatternType::Exact(p) => p.clone()
+        }
     }
 }
 
@@ -88,28 +245,11 @@ impl<'a> FileDiscoverer<'a> {
 mod tests {
     use super::*;
     use crate::ProjectDetails;
-    use crate::github::{Client, GitHubClient};
+    use crate::github::tests::MockGitHubClient;
     use std::collections::HashMap;
     use std::path::PathBuf;
     use std::sync::Arc;
-    use async_trait::async_trait;
-
-    // Mock implementation of the Client trait for testing
-    struct MockGitHubClient {
-        file_contents: HashMap<String, String>,
-    }
-
-    impl MockGitHubClient {
-        fn new() -> Self {
-            Self {
-                file_contents: HashMap::new(),
-            }
-        }
-
-        fn add_file(&mut self, path: &str, content: &str) {
-            self.file_contents.insert(path.to_string(), content.to_string());
-        }
-    }
+    use crate::github::GitHubClient;
 
     // Helper function to create a dummy GitHubClient for tests
     fn create_dummy_github_client() -> GitHubClient {
@@ -117,60 +257,6 @@ mod tests {
         GitHubClient {
             client,
             organization: "test-org".to_string(),
-        }
-    }
-
-    #[async_trait]
-    impl Client for MockGitHubClient {
-        async fn current_user(&self) -> Result<String, crate::github::GitHubError> {
-            Ok("test-user".to_string())
-        }
-
-        async fn handle_rate_limits(&self) -> Result<(), crate::github::GitHubError> {
-            Ok(())
-        }
-
-        async fn repositories(&self) -> Result<Vec<String>, crate::github::GitHubError> {
-            Ok(vec!["test-repo".to_string()])
-        }
-
-        async fn scan_for_config_file(&self, _repo_name: &str) -> Result<Option<String>, crate::github::GitHubError> {
-            Ok(Some("documents.toml".to_string()))
-        }
-
-        async fn read_config_file(&self, _repo_name: &str) -> Result<String, crate::github::GitHubError> {
-            Ok("[project]\nname = \"Test Project\"\ndescription = \"A test project\"".to_string())
-        }
-
-        async fn get_project_config(&self, _repo_name: &str) -> Result<crate::ProjectConfig, crate::github::GitHubError> {
-            let mut documents = HashMap::new();
-            documents.insert(
-                "doc1".to_string(),
-                crate::DocumentConfig {
-                    title: "Document 1".to_string(),
-                    path: Some(PathBuf::from("docs/file1.md")),
-                    sub_documents: None,
-                },
-            );
-
-            Ok(crate::ProjectConfig {
-                project: crate::ProjectDetails {
-                    name: "Test Project".to_string(),
-                    description: "A test project".to_string(),
-                },
-                documents,
-            })
-        }
-
-        async fn get_file_content(&self, _repo_name: &str, file_path: &str) -> Result<String, crate::github::GitHubError> {
-            match self.file_contents.get(file_path) {
-                Some(content) => Ok(content.clone()),
-                None => Err(crate::github::GitHubError::FileNotFound(format!("File not found: {}", file_path)))
-            }
-        }
-
-        async fn file_exists(&self, _repo_name: &str, file_path: &str) -> Result<bool, crate::github::GitHubError> {
-            Ok(self.file_contents.contains_key(file_path))
         }
     }
 
@@ -203,6 +289,51 @@ mod tests {
             config,
             processor,
         }
+    }
+
+    fn create_test_context_with_files() -> ProcessingContext {
+        let config = crate::ProjectConfig {
+            project: ProjectDetails {
+                name: "Test Project".to_string(),
+                description: "A test project".to_string(),
+            },
+            documents: HashMap::new(),
+        };
+
+        // Create a mock GitHub client with test files
+        let mut mock_client = MockGitHubClient::new();
+        mock_client.add_file("README.md", "# Test Project");
+        mock_client.add_file("CHANGELOG.md", "# Changelog");
+        mock_client.add_directory("docs");
+        mock_client.add_file("docs/guide.md", "# Guide");
+        mock_client.add_file("docs/api.md", "# API");
+        mock_client.add_directory("docs/tutorials");
+        mock_client.add_file("docs/tutorials/getting-started.md", "# Getting Started");
+
+        let github_client = Arc::new(mock_client);
+
+        let processor = crate::processing::RepositoryProcessor::new(
+            create_dummy_github_client(),
+            config.clone(),
+            "test-repo".to_string()
+        );
+
+        ProcessingContext {
+            repository: "test-repo".to_string(),
+            github_client,
+            config,
+            processor,
+        }
+    }
+
+    #[test]
+    fn test_pattern_type_from_string() {
+        assert!(matches!(PatternType::from_string("README.md"), PatternType::Exact(_)));
+
+        assert!(matches!(PatternType::from_string("*.md"), PatternType::Glob(_)));
+        assert!(matches!(PatternType::from_string("docs/**/*.md"), PatternType::Glob(_)));
+
+        assert!(matches!(PatternType::from_string("regex:^[A-Z]+\\.md$"), PatternType::Regex(_)));
     }
 
     #[tokio::test]
@@ -280,21 +411,38 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_discover_with_patterns() {
-        let context = create_test_context();
+    async fn test_find_files_by_exact_pattern() {
+        let context = create_test_context_with_files();
         let discoverer = FileDiscoverer::new(&context);
 
-        // Since find_files_by_pattern returns empty vec, this should also return empty
-        let result = discoverer.discover_with_patterns().await.unwrap();
-        assert!(result.is_empty(), "Expected empty result for pattern discovery");
+        let pattern = PatternType::Exact("README.md".to_string());
+        let result = discoverer.find_files_by_pattern(&pattern).await.unwrap();
+
+        assert_eq!(result.len(), 1, "Expected one discovered file");
+        assert_eq!(result[0], "README.md", "Expected file path to match README.md");
     }
 
     #[tokio::test]
-    async fn test_find_files_by_pattern() {
-        let context = create_test_context();
+    async fn test_find_files_by_glob_pattern() {
+        let context = create_test_context_with_files();
         let discoverer = FileDiscoverer::new(&context);
 
-        let result = discoverer.find_files_by_pattern("README.md").await.unwrap();
-        assert!(result.is_empty(), "Expected empty result for pattern search");
+        let pattern = PatternType::Glob("*.md".to_string());
+        let result = discoverer.find_files_by_pattern(&pattern).await.unwrap();
+
+        assert!(result.contains(&"README.md".to_string()), "Expected to find README.md");
+        assert!(result.contains(&"CHANGELOG.md".to_string()), "Expected to find CHANGELOG.md");
+    }
+
+    #[tokio::test]
+    async fn test_find_files_by_regex_pattern() {
+        let context = create_test_context_with_files();
+        let discoverer = FileDiscoverer::new(&context);
+
+        let pattern = PatternType::Regex("^[A-Z]+\\.md$".to_string());
+        let result = discoverer.find_files_by_pattern(&pattern).await.unwrap();
+
+        assert!(result.contains(&"README.md".to_string()), "Expected to find README.md");
+        assert!(result.contains(&"CHANGELOG.md".to_string()), "Expected to find CHANGELOG.md");
     }
 }

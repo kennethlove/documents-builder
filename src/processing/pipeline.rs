@@ -18,6 +18,8 @@ pub enum PipelineError {
     Validation(String),
     #[error("Processing error: {0}")]
     Processing(String),
+    #[error("Invalid pattern: {0}")]
+    InvalidPattern(String),
 }
 
 #[derive(Clone)]
@@ -141,82 +143,10 @@ pub struct ProcessingMetadata {
 mod tests {
     use super::*;
     use std::collections::HashMap;
-    use std::path::PathBuf;
     use std::sync::Arc;
-    use async_trait::async_trait;
     use mockito;
-    use crate::github::{Client, GitHubClient, GitHubError};
-
-    // Mock implementation of the Client trait for testing
-    struct MockGitHubClient {
-        file_contents: HashMap<String, String>,
-    }
-
-    impl MockGitHubClient {
-        fn new() -> Self {
-            Self {
-                file_contents: HashMap::new(),
-            }
-        }
-
-        fn add_file(&mut self, path: &str, content: &str) {
-            self.file_contents.insert(path.to_string(), content.to_string());
-        }
-    }
-
-    #[async_trait]
-    impl Client for MockGitHubClient {
-        async fn current_user(&self) -> Result<String, GitHubError> {
-            Ok("test-user".to_string())
-        }
-
-        async fn handle_rate_limits(&self) -> Result<(), GitHubError> {
-            Ok(())
-        }
-
-        async fn repositories(&self) -> Result<Vec<String>, GitHubError> {
-            Ok(vec!["test-repo".to_string()])
-        }
-
-        async fn scan_for_config_file(&self, _repo_name: &str) -> Result<Option<String>, GitHubError> {
-            Ok(Some("documents.toml".to_string()))
-        }
-
-        async fn read_config_file(&self, _repo_name: &str) -> Result<String, GitHubError> {
-            Ok("[project]\nname = \"Test Project\"\ndescription = \"A test project\"".to_string())
-        }
-
-        async fn get_project_config(&self, _repo_name: &str) -> Result<crate::ProjectConfig, GitHubError> {
-            let mut documents = HashMap::new();
-            documents.insert(
-                "doc1".to_string(),
-                crate::DocumentConfig {
-                    title: "Document 1".to_string(),
-                    path: Some(PathBuf::from("docs/file1.md")),
-                    sub_documents: None,
-                },
-            );
-
-            Ok(crate::ProjectConfig {
-                project: crate::ProjectDetails {
-                    name: "Test Project".to_string(),
-                    description: "A test project".to_string(),
-                },
-                documents,
-            })
-        }
-
-        async fn get_file_content(&self, _repo_name: &str, file_path: &str) -> Result<String, GitHubError> {
-            match self.file_contents.get(file_path) {
-                Some(content) => Ok(content.clone()),
-                None => Err(GitHubError::FileNotFound(format!("File not found: {}", file_path)))
-            }
-        }
-
-        async fn file_exists(&self, _repo_name: &str, file_path: &str) -> Result<bool, GitHubError> {
-            Ok(self.file_contents.contains_key(file_path))
-        }
-    }
+    use crate::github::{Client, GitHubClient};
+    use crate::github::tests::MockGitHubClient;
 
     fn create_test_context() -> ProcessingContext {
         // Create a mock GitHub client

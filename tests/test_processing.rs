@@ -3,7 +3,7 @@
 // These tests use mockito to mock the GitHub client's behavior.
 
 use documents::processing::{DocumentProcessingPipeline, ProcessingContext};
-use documents::github::{Client, GitHubClient, GitHubError};
+use documents::github::{Client, GitHubClient, GitHubError, RepositoryFile};
 use documents::{ProjectConfig, ProjectDetails, DocumentConfig};
 use documents::processing::RepositoryProcessor;
 use std::collections::HashMap;
@@ -15,17 +15,34 @@ use octocrab::Octocrab;
 // Mock implementation of the Client trait for testing
 struct MockGitHubClient {
     file_contents: HashMap<String, String>,
+    files: Vec<RepositoryFile>,
 }
 
 impl MockGitHubClient {
     fn new() -> Self {
         Self {
             file_contents: HashMap::new(),
+            files: Vec::new(),
         }
     }
 
     fn add_file(&mut self, path: &str, content: &str) {
         self.file_contents.insert(path.to_string(), content.to_string());
+        self.files.push(RepositoryFile {
+            path: path.to_string(),
+            name: path.split('/').last().unwrap_or(path).to_string(),
+            size: Some(content.len() as u64),
+            file_type: "file".to_string(),
+        });
+    }
+
+    fn add_directory(&mut self, path: &str) {
+        self.files.push(RepositoryFile {
+            path: path.to_string(),
+            name: path.split('/').last().unwrap_or(path).to_string(),
+            size: None,
+            file_type: "dir".to_string(),
+        });
     }
 }
 
@@ -89,6 +106,25 @@ impl Client for MockGitHubClient {
 
     async fn file_exists(&self, _repo_name: &str, file_path: &str) -> Result<bool, GitHubError> {
         Ok(self.file_contents.contains_key(file_path))
+    }
+
+    async fn list_repository_files(&self, repo_name: &str, path: Option<&str>) -> Result<Vec<RepositoryFile>, GitHubError> {
+        let search_path = path.unwrap_or("");
+        let mut result = Vec::new();
+
+        for file in &self.files {
+            let file_dir = if file.path.contains('/') {
+                file.path.rsplit_once('/').map(|(dir, _)| dir).unwrap_or("")
+            } else {
+                ""
+            };
+
+            if file_dir == search_path {
+                result.push(file.clone());
+            }
+        }
+
+        Ok(result)
     }
 }
 
@@ -217,6 +253,8 @@ fn create_test_context() -> ProcessingContext {
     // Create a mock GitHub client with test files
     let mut mock_client = MockGitHubClient::new();
 
+    mock_client.add_directory("docs");
+    
     // Add test files
     mock_client.add_file(
         "docs/file1.md",
@@ -277,6 +315,8 @@ fn create_test_context_with_invalid_file() -> ProcessingContext {
 
     // Create a mock GitHub client with an invalid file
     let mut mock_client = MockGitHubClient::new();
+    
+    mock_client.add_directory("docs");
 
     // Add an invalid file
     mock_client.add_file(

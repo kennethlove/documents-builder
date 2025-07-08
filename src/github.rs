@@ -39,6 +39,14 @@ pub enum GitHubError {
     InvalidFormat(String),
 }
 
+#[derive(Debug, Clone)]
+pub struct RepositoryFile {
+    pub path: String,
+    pub name: String,
+    pub size: Option<u64>,
+    pub file_type: String,
+}
+
 #[async_trait]
 pub trait Client {
     async fn current_user(&self) -> Result<String, GitHubError>;
@@ -56,6 +64,8 @@ pub trait Client {
     async fn get_file_content(&self, repo_name: &str, file_path: &str) -> Result<String, GitHubError>;
 
     async fn file_exists(&self, repo_name: &str, file_path: &str) -> Result<bool, GitHubError>;
+
+    async fn list_repository_files(&self, repo_name: &str, path: Option<&str>) -> Result<Vec<RepositoryFile>, GitHubError>;
 }
 
 #[derive(Debug, Deserialize)]
@@ -212,5 +222,143 @@ impl Client for GitHubClient {
             .map_err(GitHubError::ApiError)?;
 
         Ok(!content.items.is_empty())
+    }
+
+    async fn list_repository_files(&self, repo_name: &str, path: Option<&str>) -> Result<Vec<RepositoryFile>, GitHubError> {
+        let path = path.unwrap_or("");
+        let contents = self.client
+            .repos(&self.organization, repo_name)
+            .get_content()
+            .path(path)
+            .send()
+            .await
+            .map_err(GitHubError::ApiError)?;
+
+        let mut files = Vec::new();
+        for item in contents.items {
+            files.push(RepositoryFile {
+                path: item.path,
+                name: item.name,
+                size: Some(item.size as u64),
+                file_type: item.r#type,
+            });
+        }
+
+        Ok(files)
+    }
+}
+
+#[cfg(test)]
+pub mod tests {
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+    use async_trait::async_trait;
+    use crate::github::{Client, GitHubClient, GitHubError, RepositoryFile};
+
+    // Mock implementation of the Client trait for testing
+    pub struct MockGitHubClient {
+        file_contents: HashMap<String, String>,
+        files: Vec<RepositoryFile>,
+    }
+
+    impl MockGitHubClient {
+        pub fn new() -> Self {
+            Self {
+                file_contents: HashMap::new(),
+                files: Vec::new(),
+            }
+        }
+
+        pub fn add_file(&mut self, path: &str, content: &str) {
+            self.file_contents.insert(path.to_string(), content.to_string());
+            self.files.push(RepositoryFile {
+                path: path.to_string(),
+                name: path.split('/').last().unwrap_or(path).to_string(),
+                size: Some(content.len() as u64),
+                file_type: "file".to_string(),
+            });
+        }
+
+        pub fn add_directory(&mut self, path: &str) {
+            self.files.push(RepositoryFile {
+                path: path.to_string(),
+                name: path.split('/').last().unwrap_or(path).to_string(),
+                size: None,
+                file_type: "dir".to_string(),
+            });
+        }
+    }
+
+    #[async_trait]
+    impl Client for MockGitHubClient {
+        async fn current_user(&self) -> Result<String, crate::github::GitHubError> {
+            Ok("test-user".to_string())
+        }
+
+        async fn handle_rate_limits(&self) -> Result<(), crate::github::GitHubError> {
+            Ok(())
+        }
+
+        async fn repositories(&self) -> Result<Vec<String>, crate::github::GitHubError> {
+            Ok(vec!["test-repo".to_string()])
+        }
+
+        async fn scan_for_config_file(&self, _repo_name: &str) -> Result<Option<String>, crate::github::GitHubError> {
+            Ok(Some("documents.toml".to_string()))
+        }
+
+        async fn read_config_file(&self, _repo_name: &str) -> Result<String, crate::github::GitHubError> {
+            Ok("[project]\nname = \"Test Project\"\ndescription = \"A test project\"".to_string())
+        }
+
+        async fn get_project_config(&self, _repo_name: &str) -> Result<crate::ProjectConfig, crate::github::GitHubError> {
+            let mut documents = HashMap::new();
+            documents.insert(
+                "doc1".to_string(),
+                crate::DocumentConfig {
+                    title: "Document 1".to_string(),
+                    path: Some(PathBuf::from("docs/file1.md")),
+                    sub_documents: None,
+                },
+            );
+
+            Ok(crate::ProjectConfig {
+                project: crate::ProjectDetails {
+                    name: "Test Project".to_string(),
+                    description: "A test project".to_string(),
+                },
+                documents,
+            })
+        }
+
+        async fn get_file_content(&self, _repo_name: &str, file_path: &str) -> Result<String, crate::github::GitHubError> {
+            match self.file_contents.get(file_path) {
+                Some(content) => Ok(content.clone()),
+                None => Err(crate::github::GitHubError::FileNotFound(format!("File not found: {}", file_path)))
+            }
+        }
+
+        async fn file_exists(&self, _repo_name: &str, file_path: &str) -> Result<bool, crate::github::GitHubError> {
+            Ok(self.file_contents.contains_key(file_path))
+        }
+
+        async fn list_repository_files(&self, repo_name: &str, path: Option<&str>) -> Result<Vec<RepositoryFile>, GitHubError> {
+            let search_path = path.unwrap_or("");
+            let mut result = Vec::new();
+
+            for file in &self.files {
+                let file_dir = if file.path.contains('/') {
+                    file.path.rsplit_once('/').map(|(dir, _)| dir).unwrap_or("")
+                } else {
+                    ""
+                };
+
+                if file_dir == search_path {
+                    result.push(file.clone());
+                }
+            }
+
+            Ok(result)
+        }
     }
 }
