@@ -1,66 +1,146 @@
-# GitHub Documentation Platform - Action Plan
+# Documents Platform - Action Plan
 
 ## Overview
-Building a dual-mode documentation system that processes GitHub repositories to generate
-compositable HTML fragments. The system supports both CLI-based processing for development/testing
-and webhook-driven real-time updates for production use.
+Building a comprehensive documentation management system that allows organizations to create, manage, and serve documentation from all their GitHub repositories. The system consists of three main components: Scanner (repository discovery and content capture), Indexer (content processing and search optimization), and Builder (static site generation and serving). The platform supports both CLI-based processing for development/testing and webhook-driven real-time updates for production use.
 
-## Phase 1: Core Processing Foundation 🔧
+## Phase 1: Scanner Foundation - Repository Discovery & Content Capture 🔍
 
-### 1.1 Enhanced CLI Commands
+### 1.1 Enhanced CLI Commands (Scanner)
 - [x] Basic CLI structure with `scan`, `list-all`, and `serve` commands
 - [x] Add `process-repo` command for complete repository processing
-- [ ] Implement `process-batch` command for multiple repositories
 - [x] Add `validate-config` command for configuration testing
 - [x] Create `export-fragments` command for file-based output
+- [ ] Implement `scan-organization` command for organization-wide repository discovery
+- [ ] Add `process-batch` command for multiple repositories
 - [ ] Implement `search` command for testing search functionality
 - [ ] Add `status` command for system health (works offline)
+- [ ] Create `quality-report` command for documentation quality assessment
 
-### 1.2 Core Document Processing Engine
+### 1.2 Organization-Level Repository Discovery
+- [ ] Implement GitHub organization repository enumeration
+- [ ] Add repository filtering (public/private, archived, etc.)
+- [ ] Create `documents.toml` detection across organization repositories
+- [ ] Add organization-level configuration management
+- [ ] Implement repository access permission validation
+- [ ] Add organization scanning progress tracking
+
+### 1.3 Core Document Processing Engine (Scanner)
 - [x] Refactor existing `get_project_config` into modular processing pipeline
 - [x] Implement markdown file fetching and processing
-- [ ] Add support for different markdown file patterns (glob, regex)
 - [x] Create markdown content validation and frontmatter parsing
 - [x] Implement markdown preprocessing (link resolution, image handling)
 - [x] Add processing progress reporting for CLI users
+- [ ] Add support for different markdown file patterns (glob, regex)
+- [ ] Implement cross-repository link detection and mapping
+- [ ] Add document version tracking and comparison
+- [ ] Create content change detection (delta processing)
 
-### 1.3 Output Management (File-based and Database)
-- [ ] Design flexible output system (files vs database)
-- [ ] Implement file-based fragment storage for CLI usage
-- [ ] Create fragment versioning and comparison logic
-- [ ] Add output format options (JSON, HTML, structured files)
-- [ ] Implement fragment validation and dependency tracking
-- [ ] Add export/import functionality for fragment collections
+### 1.4 Database Integration (Required)
+- [ ] Design core database schema (single organization focus):
+    - `repositories` table (id, name, full_name, last_processed, config_hash, is_active)
+    - `documents` table (id, repo_id, path, content, metadata, version, created_at)
+    - `document_versions` table (id, doc_id, version, content, created_at)
+    - `processing_jobs` table (id, type, status, repo_id, created_at, completed_at)
+    - `quality_scores` table (id, doc_id, score, metrics, assessed_at)
+    - `cross_references` table (id, source_doc_id, target_doc_id, link_text, link_url)
+- [ ] Add database dependency (`sqlx` with PostgreSQL)
+- [ ] Implement connection pooling and transaction management
+- [ ] Create database migrations system
+- [ ] Add database health checks and backup procedures
+- [ ] Configure single GitHub token via environment variables (`GITHUB_TOKEN`)
+- [ ] Add organization name configuration (`GITHUB_ORGANIZATION`)
 
-## Phase 2: HTML Fragment Generation 🧩
+### 1.5 Content Storage and Version Management
+- [ ] Implement document content storage with version tracking
+- [ ] Create content comparison and diff generation
+- [ ] Add document metadata extraction and storage
+- [ ] Implement content validation and dependency tracking
+- [ ] Add content export/import functionality
+- [ ] Create content archival and cleanup procedures
 
-### 2.1 Content Processing Engine
-- [ ] Add `pulldown-cmark` for markdown parsing
+## Phase 2: Indexer - Content Processing & Search Optimization 📑
+
+### 2.1 Content Processing Engine (Indexer)
+- [ ] Add `pulldown-cmark` for advanced markdown parsing
 - [ ] Implement syntax highlighting for code blocks
-- [ ] Create cross-reference resolution system
-- [ ] Add image and asset processing
+- [ ] Create cross-reference resolution system across repositories
+- [ ] Add image and asset processing with optimization
 - [ ] Implement custom markdown extensions
 - [ ] Add content sanitization and security measures
 
-### 2.2 Fragment Template System
+### 2.2 Documentation Quality Assessment System
+- [ ] Implement quality scoring algorithms:
+  - Clarity metrics (readability, structure, headings)
+  - Completeness metrics (documentation coverage, missing sections)
+  - Relevance metrics (content freshness, link validity)
+- [ ] Create quality feedback reporting system
+- [ ] Add quality trend tracking over time
+- [ ] Implement quality threshold alerting
+- [ ] Create quality improvement suggestions
+- [ ] Add quality metrics API endpoints
+
+### 2.3 Search Integration with Meilisearch
+- [ ] Add Meilisearch dependency and configuration
+- [ ] Implement Meilisearch indexing workflows
+- [ ] Create search document structure optimization
+- [ ] Add search ranking and relevance tuning
+- [ ] Implement search result caching and optimization
+- [ ] Add search analytics and query tracking
+- [ ] Create search suggestion and autocomplete system
+
+### 2.4 Content Indexing and Metadata Extraction
+- [ ] Implement document chunking strategy for search optimization
+- [ ] Add keyword extraction and tagging
+- [ ] Create content summaries and abstractions
+- [ ] Implement content classification system
+- [ ] Add cross-document relationship mapping
+- [ ] Create content recommendation algorithms
+
+### 2.5 LLM Integration for Enhanced Processing
+- [ ] Research and choose embedding model (OpenAI, local models)
+- [ ] Implement document vectorization for semantic search
+- [ ] Add vector storage system (Pinecone, Weaviate, or local)
+- [ ] Create semantic similarity search
+- [ ] Implement AI-powered content summarization
+- [ ] Add LLM-based quality assessment
+
+## Phase 3: Builder - Static Site Generation & Serving 🏗️
+
+### 3.1 Static Site Generation System
+- [ ] Design responsive HTML templates for documentation browsing
+- [ ] Create navigation structure generation across repositories
+- [ ] Implement site-wide search interface
+- [ ] Add responsive design for mobile/tablet/desktop
+- [ ] Create sitemap and metadata generation
+- [ ] Add SEO optimization features
+
+### 3.2 Cross-Repository Link Resolution
+- [ ] Implement cross-repository link resolution and validation
+- [ ] Add link mapping and redirection system
+- [ ] Create broken link detection and reporting
+- [ ] Add link update notifications
+- [ ] Implement link versioning and history
+- [ ] Create link analytics and usage tracking
+
+### 3.3 Fragment Generation and Templates
 - [ ] Design HTML fragment templates for different content types
 - [ ] Create navigation fragment templates
 - [ ] Implement search result snippet templates
 - [ ] Add metadata card templates
 - [ ] Create table of contents fragment templates
-- [ ] Add HTMX attribute integration (`hx-get`, `hx-target`, etc.)
+- [ ] Add HTMX attribute integration for dynamic updates
 
-### 2.3 Fragment Generation Logic
-- [ ] Create fragment factory pattern
-- [ ] Implement fragment versioning and comparison
-- [ ] Add fragment validation
-- [ ] Create fragment dependency tracking
-- [ ] Implement fragment cache invalidation
-- [ ] Add fragment compression for storage
+### 3.4 Static Site Building Pipeline
+- [ ] Create static site build orchestration
+- [ ] Implement incremental build system
+- [ ] Add build caching and optimization
+- [ ] Create build validation and testing
+- [ ] Add build deployment automation
+- [ ] Implement build rollback capabilities
 
-## Phase 3: HTTP Server Infrastructure 🌐
+## Phase 4: HTTP Server Infrastructure & API 🌐
 
-### 3.1 Basic HTTP Server (Already Started)
+### 4.1 Basic HTTP Server (Already Started)
 - [x] Add web framework dependency (`axum`) to Cargo.toml
 - [x] Create basic HTTP server with health check endpoint
 - [x] Implement graceful shutdown handling
@@ -68,58 +148,68 @@ and webhook-driven real-time updates for production use.
 - [x] Create error handling middleware with proper HTTP status codes
 - [x] Add CORS configuration for frontend integration
 
-### 3.2 Fragment Serving API
-- [ ] Create `GET /fragments/repo/{repo}/content` endpoint
-- [ ] Implement `GET /fragments/repo/{repo}/navigation` endpoint
-- [ ] Add `GET /fragments/repo/{repo}/metadata` endpoint
-- [ ] Create `GET /search?q={query}` endpoint (returns HTML)
-- [ ] Implement `GET /fragments/repo/{repo}/toc` endpoint
-- [ ] Add proper HTTP caching headers (ETag, Cache-Control)
+### 4.2 Documentation Serving API
+- [ ] Create `GET /api/docs/repos` endpoint (list organization repositories)
+- [ ] Implement `GET /api/docs/repos/{repo}/content` endpoint
+- [ ] Add `GET /api/docs/repos/{repo}/navigation` endpoint
+- [ ] Create `GET /api/docs/repos/{repo}/metadata` endpoint
+- [ ] Implement `GET /api/docs/repos/{repo}/toc` endpoint
+- [ ] Add `GET /api/docs/repos/{repo}/quality` endpoint
+- [ ] Create proper HTTP caching headers (ETag, Cache-Control)
 
-### 3.3 Manual Processing Endpoints
-- [ ] Add `POST /process/repo/{repo}` for manual repository processing
-- [ ] Implement `POST /process/batch` for multiple repositories
-- [ ] Create `GET /status/repo/{repo}` for processing status
-- [ ] Add `POST /refresh/repo/{repo}` for force refresh
-- [ ] Implement processing progress endpoints
+### 4.3 Search API Integration
+- [ ] Create `GET /api/search?q={query}&org={org}` endpoint
+- [ ] Implement `GET /api/search/suggestions?q={query}` endpoint
+- [ ] Add `GET /api/search/filters` endpoint for search facets
+- [ ] Create search result ranking and pagination
+- [ ] Add search analytics endpoints
+- [ ] Implement search result export functionality
 
-## Phase 4: Database Integration (Optional) 💾
+### 4.4 Manual Processing Endpoints
+- [ ] Add `POST /api/process/org` for organization processing
+- [ ] Implement `POST /api/process/repo/{repo}` for repository processing
+- [ ] Create `GET /api/status/org` for organization processing status
+- [ ] Add `GET /api/status/repo/{repo}` for repository processing status
+- [ ] Implement `POST /api/refresh/repo/{repo}` for force refresh
+- [ ] Create processing progress streaming endpoints
 
-### 4.1 Database Schema Design
-- [ ] Design repositories table (id, name, organization, last_processed)
-- [ ] Create configurations table (repo_id, config_data, version)
-- [ ] Design fragments table (id, repo_id, type, content, metadata, created_at)
-- [ ] Create search_index table for full-text search
-- [ ] Add processing_jobs table for job tracking
-- [ ] Implement database migrations system
+## Phase 5: MCP Server Implementation 🤖
 
-### 4.2 Database Layer Implementation (Optional Dependencies)
-- [ ] Add database dependency (`sqlx` with PostgreSQL/SQLite) - **Optional**
-- [ ] Implement connection pooling
-- [ ] Create repository pattern for data access
-- [ ] Add database transaction management
-- [ ] Implement database health checks
-- [ ] Add database backup and recovery procedures
+### 5.1 MCP Server Infrastructure
+- [ ] Research and implement MCP (Model Context Protocol) specification
+- [ ] Create MCP server endpoints for documentation access
+- [ ] Add MCP authentication and authorization
+- [ ] Implement MCP-specific data formatting
+- [ ] Create MCP error handling and status codes
+- [ ] Add MCP server health monitoring
 
-### 4.3 Search Integration
-- [ ] Implement full-text search indexing
-- [ ] Create search query processing (file-based and database)
-- [ ] Add search ranking and relevance scoring
-- [ ] Implement search result caching
-- [ ] Add search analytics and tracking
-- [ ] Create search suggestion system
+### 5.2 MCP Documentation Access
+- [ ] Implement MCP endpoints for document retrieval
+- [ ] Add MCP search capabilities
+- [ ] Create MCP metadata access
+- [ ] Implement MCP content streaming
+- [ ] Add MCP query optimization
+- [ ] Create MCP usage analytics
 
-## Phase 5: GitHub Webhook Integration 🔗
+### 5.3 LLM Integration via MCP
+- [ ] Add LLM context optimization for MCP responses
+- [ ] Implement document chunking for LLM consumption
+- [ ] Create LLM-friendly metadata formatting
+- [ ] Add semantic search via MCP
+- [ ] Implement Q&A system foundation
+- [ ] Create content recommendation via MCP
 
-### 5.1 Webhook Infrastructure
+## Phase 6: GitHub Webhook Integration 🔗
+
+### 6.1 Webhook Infrastructure
 - [ ] Implement GitHub webhook signature verification (HMAC-SHA256)
 - [ ] Create webhook payload parsing for GitHub events
-- [ ] Add webhook endpoint (`POST /webhooks/github`)
+- [ ] Add webhook endpoint (`POST /api/webhooks/github`)
 - [ ] Filter for relevant events (push, pull_request merged)
 - [ ] Extract repository information from webhook payload
 - [ ] Add webhook secret configuration management
 
-### 5.2 Event Processing Pipeline
+### 6.2 Event Processing Pipeline
 - [ ] Design async job queue using `tokio` channels
 - [ ] Implement job processor with error handling
 - [ ] Add job retry logic with exponential backoff
@@ -127,61 +217,60 @@ and webhook-driven real-time updates for production use.
 - [ ] Add processing status tracking
 - [ ] Implement job queue monitoring and metrics
 
-### 5.3 Delta Processing
+### 6.3 Delta Processing and Selective Updates
 - [ ] Implement delta detection (analyze changed files from webhook)
 - [ ] Add selective repository processing
 - [ ] Create processing state management (in-progress, completed, failed)
 - [ ] Add processing timeouts and cancellation
 - [ ] Implement concurrent processing limits
+- [ ] Create processing job prioritization
 
-## Phase 6: Real-time Features 📡
+### 6.4 Scheduled Processing
+- [ ] Add cron-like scheduling system for periodic scans
+- [ ] Implement scheduled job management
+- [ ] Add scheduling configuration options
+- [ ] Create schedule monitoring and alerting
+- [ ] Add schedule conflict resolution
+- [ ] Implement schedule optimization
 
-### 6.1 Real-time Update System
+## Phase 7: User Interface & Experience 🎨
+
+### 7.1 Web Interface Development
+- [ ] Create responsive documentation browsing interface
+- [ ] Implement organization and repository navigation
+- [ ] Add advanced search interface with filters
+- [ ] Create quality score visualization
+- [ ] Add version history browsing
+- [ ] Implement accessibility features (WCAG compliance)
+
+### 7.2 Documentation Management Interface
+- [ ] Create documentation quality dashboard
+- [ ] Add processing status monitoring interface
+- [ ] Implement configuration management UI
+- [ ] Create organization settings interface
+- [ ] Add user management and permissions
+- [ ] Implement audit log viewing
+
+### 7.3 Real-time Updates
 - [ ] Implement Server-Sent Events (SSE) for live updates
-- [ ] Create WebSocket endpoint for real-time notifications
-- [ ] Add HTMX polling endpoints for content freshness
-- [ ] Implement client connection management
-- [ ] Add event broadcasting system
-- [ ] Create client reconnection handling
+- [ ] Add WebSocket support for real-time notifications
+- [ ] Create real-time processing status updates
+- [ ] Implement live search result updates
+- [ ] Add real-time quality score updates
+- [ ] Create notification system for important events
 
-### 6.2 Advanced Configuration
-- [ ] Add comprehensive environment variable support
-- [ ] Implement configuration file validation
-- [ ] Create configuration templates
-- [ ] Add secrets management integration
-- [ ] Implement configuration hot-reloading
-- [ ] Add configuration documentation
-
-## Phase 7: AI Integration Preparation 🤖
-
-### 7.1 Content Vectorization
-- [ ] Research and choose embedding model (OpenAI, local models)
-- [ ] Implement document chunking strategy
-- [ ] Add vector embedding generation
-- [ ] Create vector storage system
-- [ ] Implement similarity search
-- [ ] Add embedding update mechanisms
-
-### 7.2 AI-Ready Content Structure
-- [ ] Extract and store document metadata for AI context
-- [ ] Create content summaries and abstractions
-- [ ] Implement content classification system
-- [ ] Add AI-powered search endpoints
-- [ ] Create Q&A system foundation
-- [ ] Implement content recommendation system
-
-## Phase 8: Production Deployment 🚀
+## Phase 8: Production Deployment & Monitoring 🚀
 
 ### 8.1 Monitoring and Observability
 - [ ] Add structured logging with `tracing`
 - [ ] Implement metrics collection (Prometheus format)
-- [ ] Create health check endpoints
+- [ ] Create comprehensive health check endpoints
 - [ ] Add distributed tracing support
-- [ ] Implement alerting system
+- [ ] Implement alerting system for critical events
 - [ ] Create operational dashboards
 
 ### 8.2 Production Readiness
-- [ ] Create Docker containerization
+- [ ] Create Docker containerization for all components
 - [ ] Implement graceful shutdown procedures
 - [ ] Add resource limit configuration
 - [ ] Create deployment scripts/manifests
@@ -189,105 +278,201 @@ and webhook-driven real-time updates for production use.
 - [ ] Add backup and disaster recovery procedures
 
 ### 8.3 Security Hardening
-- [ ] Implement input validation and sanitization
+- [ ] Implement comprehensive input validation and sanitization
 - [ ] Add rate limiting and DDoS protection
 - [ ] Create security headers middleware
-- [ ] Implement audit logging
-- [ ] Add vulnerability scanning
+- [ ] Implement audit logging for all actions
+- [ ] Add vulnerability scanning and reporting
 - [ ] Create security incident response procedures
 
-## Phase 9: Scaling and Optimization ⚡
-
-### 9.1 Performance Optimization
-- [ ] Implement caching layers (Redis/Memcached) - **Optional**
+### 8.4 Performance Optimization
+- [ ] Implement caching layers (Redis for session/API cache)
 - [ ] Add database read replicas support
 - [ ] Create distributed job processing
 - [ ] Implement auto-scaling configuration
 - [ ] Add performance monitoring and optimization
+- [ ] Create performance benchmarking and testing
 
-### 9.2 Advanced API Features
+## Phase 9: Advanced Features & Scaling ⚡
+
+### 9.1 Advanced API Features
 - [ ] Add OpenAPI/Swagger documentation
-- [ ] Create API integration tests
-- [ ] Implement API rate limiting
-- [ ] Add API authentication/authorization
+- [ ] Create comprehensive API integration tests
+- [ ] Implement API rate limiting and quotas
+- [ ] Add API authentication/authorization (OAuth, API keys)
 - [ ] Create API monitoring and logging
 - [ ] Add API versioning strategy
+
+### 9.2 Enterprise Features
+- [ ] Add multi-tenant organization support
+- [ ] Implement role-based access control (RBAC)
+- [ ] Create enterprise SSO integration
+- [ ] Add compliance and audit features
+- [ ] Implement data retention policies
+- [ ] Create enterprise backup and recovery
+
+### 9.3 Integration Ecosystem
+- [ ] Create plugin system for custom processors
+- [ ] Add integration with popular documentation tools
+- [ ] Implement export formats (PDF, EPUB, etc.)
+- [ ] Create API SDKs for common languages
+- [ ] Add integration with CI/CD pipelines
+- [ ] Implement third-party webhook support
 
 ## Testing Strategy 🧪
 
 ### Unit Testing
-- [ ] Test GitHub API integration
+- [ ] Test GitHub API integration and organization scanning
 - [ ] Test CLI commands and processing logic
-- [ ] Test fragment generation logic
+- [ ] Test quality assessment algorithms
+- [ ] Test search functionality (Meilisearch integration)
 - [ ] Test configuration validation
-- [ ] Test search functionality (file-based and database)
+- [ ] Test MCP server implementation
 
 ### Integration Testing
-- [ ] Test CLI end-to-end processing flows
-- [ ] Test webhook end-to-end flow
-- [ ] Test API endpoints with HTMX
-- [ ] Test database migrations (when applicable)
-- [ ] Test error handling scenarios
+- [ ] Test end-to-end organization processing flows
+- [ ] Test webhook end-to-end processing
+- [ ] Test static site generation and serving
+- [ ] Test database migrations and data integrity
+- [ ] Test cross-repository link resolution
+- [ ] Test error handling and recovery scenarios
 
 ### Performance Testing
-- [ ] Benchmark CLI processing for large repositories
-- [ ] Load test webhook processing
-- [ ] Stress test search functionality
+- [ ] Benchmark organization-wide scanning performance
+- [ ] Load test webhook processing under high volume
+- [ ] Stress test search functionality with large datasets
 - [ ] Test concurrent repository processing
 - [ ] Test database performance under load
+- [ ] Test MCP server performance
+
+### Quality Assurance
+- [ ] Test documentation quality scoring accuracy
+- [ ] Validate search result relevance and ranking
+- [ ] Test cross-repository link accuracy
+- [ ] Validate static site generation quality
+- [ ] Test accessibility compliance
+- [ ] Validate security measures
 
 ## Success Metrics 📊
 
-### CLI Metrics
-- [ ] Repository processing time < 30 seconds for typical repos
-- [ ] Fragment generation time < 5 seconds per repository
-- [ ] Search response time < 200ms for file-based search
-- [ ] Support for 100+ repositories in batch processing
+### Organization Coverage Metrics
+- [ ] Organization repository discovery rate (>95% of accessible repos)
+- [ ] Documentation coverage per organization (% of repos with docs)
+- [ ] Processing success rate (>98% successful processing)
+- [ ] Configuration validation accuracy (>99% valid configs detected)
 
-### Webhook/API Metrics
-- [ ] Webhook processing latency < 2 seconds
-- [ ] API search response time < 500ms
-- [ ] 99.9% uptime for webhook endpoint
-- [ ] Database query performance < 100ms average (when applicable)
+### Processing Performance Metrics
+- [ ] Organization scan time < 2 minutes for typical orgs (100 repos)
+- [ ] Individual repository processing time < 30 seconds
+- [ ] Quality assessment time < 10 seconds per document
+- [ ] Search indexing time < 5 seconds per document
+- [ ] Static site generation time < 2 minutes for full org
+
+### Search and Quality Metrics
+- [ ] Search response time < 200ms for typical queries
+- [ ] Search result relevance score >85% (user feedback)
+- [ ] Quality score accuracy >80% (compared to manual assessment)
+- [ ] Cross-repository link accuracy >95%
+- [ ] Documentation freshness (>90% processed within 24h of changes)
+
+### API and Webhook Metrics
+- [ ] Webhook processing latency < 5 seconds
+- [ ] API response time < 500ms for most endpoints
+- [ ] 99.9% uptime for webhook and API endpoints
+- [ ] Database query performance < 100ms average
+- [ ] MCP server response time < 1 second
+
+### User Experience Metrics
+- [ ] Static site load time < 3 seconds
+- [ ] Documentation browsing experience score >4.5/5
+- [ ] Search user satisfaction score >4.0/5
+- [ ] Quality improvement rate (10% improvement per quarter)
 
 ## Dependencies 📦
 
 ### Core Dependencies (Required)
 - [x] `axum` - Web framework
-- [ ] `pulldown-cmark` - Markdown parsing
 - [x] `clap` - CLI framework
-- [ ] `tokio` - Async runtime
+- [x] `tokio` - Async runtime
 - [x] `serde` - Serialization
 - [x] `tracing` - Logging
+- [ ] `pulldown-cmark` - Markdown parsing
+- [ ] `sqlx` - Database integration (PostgreSQL)
+- [ ] `meilisearch-sdk` - Search engine integration
 
-### Optional Dependencies (Feature-dependent)
-- [ ] `sqlx` - Database integration (optional)
-- [ ] `tokio-tungstenite` - WebSocket support (optional)
-- [ ] `redis` - Caching (optional)
-- [ ] `prometheus` - Metrics collection (optional)
+### Additional Dependencies
+- [ ] `html-minifier` - HTML optimization
+- [ ] `image` - Image processing
+- [ ] `tokio-tungstenite` - WebSocket support
+- [ ] `redis` - Caching layer
+- [ ] `prometheus` - Metrics collection
+- [ ] `openssl` - Security/TLS
+- [ ] `reqwest` - HTTP client for external APIs
 
 ---
 
 ## Development Approach
 
-### CLI-First Development
-1. **Start with CLI processing** - Get core functionality working standalone
-2. **File-based output first** - Don't require database for initial development
-3. **Progressive enhancement** - Add database and webhook features incrementally
-4. **Dual-mode architecture** - Ensure both CLI and webhook modes share core logic
+### Component-Based Architecture
+1. **Scanner Component** - Repository discovery and content capture
+2. **Indexer Component** - Content processing and search optimization
+3. **Builder Component** - Static site generation and serving
+4. **API Layer** - HTTP server and MCP server
+5. **Webhook Processor** - Real-time update handling
 
-### Modular Design Principles
-- **Separation of concerns** - Processing logic independent of input/output methods
-- **Optional dependencies** - Database and advanced features should be optional
-- **Flexible output** - Support both file-based and database storage
-- **Testable components** - Each phase should be testable independently
+### Database-First Design
+- **Required database** - PostgreSQL for persistent storage
+- **Structured data model** - Organizations, repositories, documents, versions
+- **Performance optimization** - Connection pooling, read replicas, caching
+- **Data integrity** - Transactions, constraints, migrations
+
+### Quality-Focused Development
+- **Quality assessment** - Built-in quality scoring and feedback
+- **Search optimization** - Meilisearch integration for powerful search
+- **Cross-repository support** - Seamless navigation across organization docs
+- **Version tracking** - Complete document history and comparison
 
 ### Getting Started (Revised)
-1. **Phase 1.1** - Enhanced CLI commands for complete repository processing
-2. **Phase 1.2** - Core document processing pipeline (works without database)
-3. **Phase 2** - HTML fragment generation with file-based output
-4. **Phase 3** - HTTP server for serving generated fragments
-5. **Phases 4-5** - Add database and webhook features incrementally
+1. **Phase 1** - Scanner foundation with organization discovery and database
+2. **Phase 2** - Indexer with quality assessment and Meilisearch integration
+3. **Phase 3** - Builder with static site generation and cross-repo links
+4. **Phase 4** - HTTP server and comprehensive API
+5. **Phase 5** - MCP server for LLM integration
+6. **Phase 6** - Webhook integration for real-time updates
 
-**Estimated Timeline: 10-14 weeks for full implementation**
-**MVP Timeline: 4-6 weeks (CLI + file-based fragment generation + basic HTTP serving)**
+**Estimated Timeline: 16-20 weeks for full implementation**
+**MVP Timeline: 8-10 weeks (Scanner + Indexer + Builder + Basic API)**
+**Production Ready: 12-14 weeks (MVP + Webhooks + MCP + UI)**
+
+## Architecture Overview
+
+```
+
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│     Scanner     │    │     Indexer     │    │     Builder     │
+│                 │    │                 │    │                 │
+│ • Org Discovery │───▶│ • Quality Score │───▶│ • Static Site   │
+│ • Repo Scanning │    │ • Search Index  │    │ • Cross Links   │
+│ • Content       │    │ • LLM Prep      │    │ • Templates     │
+│   Capture       │    │ • Metadata      │    │ • Navigation    │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+│                       │                       │
+└───────────────────────┼───────────────────────┘
+│
+┌─────────────────┐
+│   PostgreSQL    │
+│   Database      │
+└─────────────────┘
+│
+┌───────────────────────┼───────────────────────┐
+│                       │                       │
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   HTTP Server   │    │   MCP Server    │    │   Webhook       │
+│                 │    │                 │    │   Processor     │
+│ • Documentation │    │ • LLM Interface │    │ • Real-time     │
+│   API           │    │ • Context       │    │   Updates       │
+│ • Search API    │    │   Protocol      │    │ • Delta Proc    │
+│ • Management    │    │ • Semantic      │    │ • Job Queue     │
+│   Interface     │    │   Search        │    │                 │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+```
