@@ -1,7 +1,11 @@
 # Documents Platform - Action Plan
 
 ## Overview
-Building a comprehensive documentation management system that allows organizations to create, manage, and serve documentation from all their GitHub repositories. The system consists of three main components: Scanner (repository discovery and content capture), Indexer (content processing and search optimization), and Builder (static site generation and serving). The platform supports both CLI-based processing for development/testing and webhook-driven real-time updates for production use.
+Building a comprehensive documentation management system that allows organizations to create, manage, and serve
+documentation from all their GitHub repositories. The system consists of three main components: Scanner (repository
+discovery and content capture), Indexer (content processing and search optimization), and Builder (static site generation
+and serving). The platform supports both CLI-based processing for development/testing and webhook-driven real-time updates
+for production use.
 
 ## Phase 1: Scanner Foundation - Repository Discovery & Content Capture 🔍
 
@@ -30,7 +34,7 @@ Building a comprehensive documentation management system that allows organizatio
 - [x] Create markdown content validation and frontmatter parsing
 - [x] Implement markdown preprocessing (link resolution, image handling)
 - [x] Add processing progress reporting for CLI users
-- [ ] Add support for different markdown file patterns (glob, regex)
+- [x] Add support for different markdown file patterns (glob, regex)
 - [ ] Implement cross-repository link detection and mapping
 - [ ] Add document version tracking and comparison
 - [ ] Create content change detection (delta processing)
@@ -443,36 +447,3 @@ Building a comprehensive documentation management system that allows organizatio
 **Estimated Timeline: 16-20 weeks for full implementation**
 **MVP Timeline: 8-10 weeks (Scanner + Indexer + Builder + Basic API)**
 **Production Ready: 12-14 weeks (MVP + Webhooks + MCP + UI)**
-
-## Architecture Overview
-
-```
-
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│     Scanner     │    │     Indexer     │    │     Builder     │
-│                 │    │                 │    │                 │
-│ • Org Discovery │───▶│ • Quality Score │───▶│ • Static Site   │
-│ • Repo Scanning │    │ • Search Index  │    │ • Cross Links   │
-│ • Content       │    │ • LLM Prep      │    │ • Templates     │
-│   Capture       │    │ • Metadata      │    │ • Navigation    │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-│                       │                       │
-└───────────────────────┼───────────────────────┘
-│
-┌─────────────────┐
-│   PostgreSQL    │
-│   Database      │
-└─────────────────┘
-│
-┌───────────────────────┼───────────────────────┐
-│                       │                       │
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   HTTP Server   │    │   MCP Server    │    │   Webhook       │
-│                 │    │                 │    │   Processor     │
-│ • Documentation │    │ • LLM Interface │    │ • Real-time     │
-│   API           │    │ • Context       │    │   Updates       │
-│ • Search API    │    │   Protocol      │    │ • Delta Proc    │
-│ • Management    │    │ • Semantic      │    │ • Job Queue     │
-│   Interface     │    │   Search        │    │                 │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-```

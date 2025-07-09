@@ -1,0 +1,36 @@
+flowchart TD
+    %% Core Processing Pipeline
+    Scanner["Scanner<br/>• Org Discovery<br/>• Repo Scanning<br/>• Content Capture"]
+    Indexer["Indexer<br/>• Quality Score<br/>• Search Index<br/>• LLM Prep<br/>• Metadata"]
+    Builder["Builder<br/>• Static Site<br/>• Cross Links<br/>• Templates<br/>• Navigation"]
+    
+    %% Database
+    DB[("PostgreSQL<br/>Database")]
+    
+    %% Service Layer
+    HTTP["HTTP Server<br/>• Documentation API<br/>• Search API<br/>• Management Interface"]
+    MCP["MCP Server<br/>• LLM Interface<br/>• Context Protocol<br/>• Semantic Search"]
+    Webhook["Webhook Processor<br/>• Real-time Updates<br/>• Delta Proc<br/>• Job Queue"]
+    
+    %% Processing Flow
+    Scanner --> Indexer
+    Indexer --> Builder
+    
+    %% Database Connections
+    Scanner --> DB
+    Indexer --> DB
+    Builder --> DB
+    
+    %% Service Connections
+    DB --> HTTP
+    DB --> MCP
+    DB --> Webhook
+    
+    %% Styling
+    classDef processor fill:#e1f5fe,stroke:#01579b,stroke-width:2px,color:#000
+    classDef database fill:#f3e5f5,stroke:#4a148c,stroke-width:2px,color:#000
+    classDef service fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px,color:#000
+    
+    class Scanner,Indexer,Builder processor
+    class DB database
+    class HTTP,MCP,Webhook service
