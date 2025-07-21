@@ -2,11 +2,15 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
+pub mod commands;
+pub mod database;
 pub mod github;
+pub mod output;
 pub mod processing;
 pub mod web;
-pub mod commands;
-mod output;
+mod config;
+
+pub use database::{Database, DatabaseError};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct DocumentConfig {
