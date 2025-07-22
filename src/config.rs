@@ -21,7 +21,10 @@ pub enum ConfigError {
 impl Config {
     pub fn from_env() -> Result<Self, ConfigError> {
         dotenv().ok();
+        Self::from_current_env()
+    }
 
+    pub fn from_current_env() -> Result<Self, ConfigError> {
         let github_token = env::var("GITHUB_TOKEN")
             .map_err(|_| ConfigError::MissingEnvVar("GITHUB_TOKEN".to_string()))?;
 
@@ -72,17 +75,24 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    static ENV_MUTEX: Mutex<()> = Mutex::new(());
 
     #[test]
     fn test_config_from_env_missing_required() {
-        // TODO: Remove this unsafe block
+        let _guard = ENV_MUTEX.lock().unwrap();
+
         unsafe {
             env::remove_var("GITHUB_TOKEN");
             env::remove_var("GITHUB_ORGANIZATION");
             env::remove_var("DATABASE_URL");
+            env::remove_var("SERVER_HOST");
+            env::remove_var("SERVER_PORT");
         }
 
-        let result = Config::from_env();
+        let result = Config::from_current_env();
+        dbg!(&result);
         assert!(result.is_err());
     }
 
