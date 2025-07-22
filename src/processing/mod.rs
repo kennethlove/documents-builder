@@ -1,17 +1,17 @@
-pub mod validate_config;
-pub mod pipeline;
 pub mod discovery;
-pub mod validation;
+pub mod pipeline;
 pub mod processor;
+pub mod validate_config;
+pub mod validation;
 
 pub use pipeline::{
-    DocumentProcessingPipeline, ProcessingContext, ProcessedDocument,
-    Heading, Link, Image, CodeBlock, ProcessingMetadata, PipelineError
+    CodeBlock, DocumentProcessingPipeline, Heading, Image, Link, PipelineError, ProcessedDocument,
+    ProcessingContext, ProcessingMetadata,
 };
 pub use validate_config::ConfigValidator;
 
-use crate::github::Client;
 use crate::ProjectConfig;
+use crate::github::Client;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -75,7 +75,11 @@ impl std::fmt::Debug for RepositoryProcessor {
 }
 
 impl RepositoryProcessor {
-    pub fn new(github: impl Client + Send + Sync + 'static, config: ProjectConfig, repository: String) -> Self {
+    pub fn new(
+        github: impl Client + Send + Sync + 'static,
+        config: ProjectConfig,
+        repository: String,
+    ) -> Self {
         RepositoryProcessor {
             github: Arc::new(github),
             config,
@@ -145,7 +149,10 @@ impl RepositoryProcessor {
     }
 
     async fn discover_markdown_files(&self) -> Result<Vec<String>, ProcessingError> {
-        debug!("Discovering markdown files for repository {}", self.repository);
+        debug!(
+            "Discovering markdown files for repository {}",
+            self.repository
+        );
 
         let patterns = self.config.documents.clone();
         let mut discovered_files = Vec::new();
@@ -160,7 +167,10 @@ impl RepositoryProcessor {
                     }
                 }
             } else {
-                warn!("Document configuration for {} does not specify a path or sub-documents", document.title);
+                warn!(
+                    "Document configuration for {} does not specify a path or sub-documents",
+                    document.title
+                );
             }
         }
 
@@ -172,11 +182,17 @@ impl RepositoryProcessor {
         Ok(discovered_files)
     }
 
-    async fn process_markdown_file(&self, file_path: &str) -> Result<Vec<DocumentFragment>, ProcessingError> {
+    async fn process_markdown_file(
+        &self,
+        file_path: &str,
+    ) -> Result<Vec<DocumentFragment>, ProcessingError> {
         debug!("Processing markdown file: {}", file_path);
 
         // Fetch the file's content
-        let content = self.github.get_file_content(&self.repository, file_path).await
+        let content = self
+            .github
+            .get_file_content(&self.repository, file_path)
+            .await
             .map_err(ProcessingError::GitHub)?;
 
         let (frontmatter, markdown_content) = self.extract_frontmatter(&content);
@@ -188,7 +204,10 @@ impl RepositoryProcessor {
             id: format!("{}#{}", self.repository, file_path),
             file_path: file_path.to_string(),
             fragment_type: FragmentType::Content,
-            title: frontmatter.get("title").cloned().unwrap_or_else(|| "Untitled".to_string()),
+            title: frontmatter
+                .get("title")
+                .cloned()
+                .unwrap_or_else(|| "Untitled".to_string()),
             content: markdown_content.clone(),
             metadata: frontmatter.clone(),
             word_count: self.count_words(&markdown_content),
@@ -208,7 +227,8 @@ impl RepositoryProcessor {
                 let mut metadata = HashMap::new();
                 for line in frontmatter.lines() {
                     if let Some((key, value)) = line.split_once(':') {
-                        metadata.insert(key.trim().to_string(), value.trim_matches('"').to_string());
+                        metadata
+                            .insert(key.trim().to_string(), value.trim_matches('"').to_string());
                     }
                 }
 

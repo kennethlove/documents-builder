@@ -1,13 +1,15 @@
 use clap::{Parser, Subcommand};
-use tracing_subscriber::EnvFilter;
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::util::SubscriberInitExt;
+use documents::Config;
 use documents::commands::export_fragments::{ExportFragmentsArgs, ExportFragmentsCommand};
+use documents::commands::health_checks::{HealthArgs, run as health_check};
 use documents::commands::list_all::ListAllCommand;
 use documents::commands::process_repository::{ProcessRepositoryArgs, ProcessRepositoryCommand};
 use documents::commands::serve_webhook::{ServeWebhookArgs, ServeWebhookCommand};
-use documents::commands::validate_config::{ValidateConfigArgs, ValidateConfigCommand};
-use documents::github::{load_config, Client, GitHubClient};
+use documents::commands::validate_repo_config::{ValidateConfigArgs, ValidateConfigCommand};
+use documents::github::{Client, GitHubClient};
+use tracing_subscriber::EnvFilter;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -23,6 +25,7 @@ enum Commands {
     ProcessRepo(ProcessRepositoryArgs),
     Serve(ServeWebhookArgs),
     ValidateConfig(ValidateConfigArgs),
+    HealthCheck(HealthArgs),
 }
 
 // Load configuration from the environment or file
@@ -33,30 +36,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Initialize logging
     let log_level = match &cli.command {
-        Some(Commands::Serve(ServeWebhookArgs { log_level, ..})) => log_level.clone(),
-        Some(Commands::ProcessRepo(ProcessRepositoryArgs { verbose: true, .. })) => "debug".to_string(),
+        Some(Commands::Serve(ServeWebhookArgs { log_level, .. })) => log_level.clone(),
+        Some(Commands::ProcessRepo(ProcessRepositoryArgs { verbose: true, .. })) => {
+            "debug".to_string()
+        }
         _ => "info".to_string(),
     };
 
     let _ = tracing_subscriber::registry()
-        .with(EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| {
-                format!("{}={},tower_http=debug,axum=debug", env!("CARGO_PKG_NAME"), log_level).into()
-            })
-        )
+        .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+            format!(
+                "{}={},tower_http=debug,axum=debug",
+                env!("CARGO_PKG_NAME"),
+                log_level
+            )
+            .into()
+        }))
         .with(tracing_subscriber::fmt::layer().with_target(false))
         .try_init();
 
-
     // Load configuration
-    let config = load_config()?;
+    let config = Config::from_env()?;
 
     // Initialize GitHub client
     let github = GitHubClient::new(&config).await?;
-
-    // Test authentication
-    println!("Authenticated as {}", github.current_user().await?);
-    println!("Using organization: {}", github.organization);
 
     match cli.command {
         Some(Commands::ExportFragments(args)) => {
@@ -77,6 +80,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             let command = ValidateConfigCommand::new(args);
             command.execute(&github).await?
         }
+        Some(Commands::HealthCheck(args)) => {
+            // TODO: Move this to health_checks module
+            // Test authentication
+            println!("Authenticated as {}", github.current_user().await?);
+            println!("Using organization: {}", github.organization);
+
+            health_check(args).await?;
+        }
         None => {
             let _ = tracing_subscriber::fmt::try_init();
             tracing::info!("No command provided. Use --help to see available commands.");
@@ -85,4 +96,3 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     Ok(())
 }
-

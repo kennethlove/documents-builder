@@ -2,8 +2,8 @@ mod fragment;
 mod storage;
 mod versioning;
 
-use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 #[derive(Debug, thiserror::Error)]
 pub enum OutputError {

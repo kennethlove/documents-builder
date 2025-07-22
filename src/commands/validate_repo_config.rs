@@ -1,16 +1,24 @@
-use clap::Args;
 use crate::count_document_paths;
 use crate::github::{Client, GitHubClient, GitHubError};
 use crate::processing::ConfigValidator;
 use crate::web::AppError;
+use clap::Args;
 
 #[derive(Args, Debug)]
 pub struct ValidateConfigArgs {
     /// GitHub repository to validate configuration for
     repository: String,
-    #[arg(short, long, help = "Check if referenced files actually exist in the repository")]
+    #[arg(
+        short,
+        long,
+        help = "Check if referenced files actually exist in the repository"
+    )]
     check_files: bool,
-    #[arg(short, long, help = "Base directory for resolving relative paths in the config file (defaults to repository root)")]
+    #[arg(
+        short,
+        long,
+        help = "Base directory for resolving relative paths in the config file (defaults to repository root)"
+    )]
     base_dir: Option<String>,
 }
 
@@ -30,19 +38,35 @@ impl ValidateConfigCommand {
     }
 
     pub async fn execute(&self, client: &GitHubClient) -> Result<(), AppError> {
-        tracing::info!("Validating configuration for repository: {}", self.repository);
+        tracing::info!(
+            "Validating configuration for repository: {}",
+            self.repository
+        );
 
         // Fetch the configuration file from GitHub
         let config = match client.get_project_config(self.repository.as_str()).await {
             Ok(config) => config,
             Err(GitHubError::ConfigFileNotFound(_)) => {
-                tracing::error!("No configuration file found in repository: {}", self.repository);
-                eprintln!("No configuration file found in repository: {}", self.repository);
+                tracing::error!(
+                    "No configuration file found in repository: {}",
+                    self.repository
+                );
+                eprintln!(
+                    "No configuration file found in repository: {}",
+                    self.repository
+                );
                 std::process::exit(1);
             }
             Err(e) => {
-                tracing::error!("Error retrieving configuration for repository {}: {}", self.repository, e);
-                eprintln!("Error retrieving configuration for repository {}: {}", self.repository, e);
+                tracing::error!(
+                    "Error retrieving configuration for repository {}: {}",
+                    self.repository,
+                    e
+                );
+                eprintln!(
+                    "Error retrieving configuration for repository {}: {}",
+                    self.repository, e
+                );
                 std::process::exit(1);
             }
         };
@@ -51,7 +75,10 @@ impl ValidateConfigCommand {
 
         if self.check_files {
             let base_path = self.base_dir.as_deref().unwrap_or(".");
-            tracing::info!("Checking file existence in repository relative to: {}", base_path);
+            tracing::info!(
+                "Checking file existence in repository relative to: {}",
+                base_path
+            );
             validator = validator.with_github_file_check(&client, &self.repository, &base_path);
         }
 
@@ -75,7 +102,9 @@ impl ValidateConfigCommand {
             println!(" - Description: {}", config.project.description);
             println!(" - Documents: {}", config.documents.len());
 
-            let total_paths: usize = config.documents.values()
+            let total_paths: usize = config
+                .documents
+                .values()
                 .map(|doc| count_document_paths(doc))
                 .sum();
 
@@ -108,6 +137,5 @@ impl ValidateConfigCommand {
 
             std::process::exit(1);
         }
-
     }
 }

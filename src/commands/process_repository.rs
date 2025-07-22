@@ -1,9 +1,9 @@
-use std::path::PathBuf;
-use clap::Args;
-use crate::github::{Client, GitHubClient, GitHubError};
 use crate::OutputFormat;
+use crate::github::{Client, GitHubClient, GitHubError};
 use crate::processing::RepositoryProcessor;
 use crate::web::AppError;
+use clap::Args;
+use std::path::PathBuf;
 
 #[derive(Args, Debug)]
 pub struct ProcessRepositoryArgs {
@@ -47,9 +47,10 @@ impl ProcessRepositoryCommand {
     }
 
     pub async fn execute(&self, client: &GitHubClient) -> Result<(), AppError> {
-        let output_dir = self.output.clone().unwrap_or_else(|| {
-            PathBuf::from("output").join(&self.repository)
-        });
+        let output_dir = self
+            .output
+            .clone()
+            .unwrap_or_else(|| PathBuf::from("output").join(&self.repository));
 
         if self.verbose {
             tracing::debug!("Processing repository: {}", self.repository);
@@ -66,7 +67,8 @@ impl ProcessRepositoryCommand {
                 }
 
                 // Create processor and run processing
-                let processor = RepositoryProcessor::new(client.clone(), config, self.repository.clone());
+                let processor =
+                    RepositoryProcessor::new(client.clone(), config, self.repository.clone());
 
                 match processor.process(self.verbose).await {
                     Ok(result) => {
@@ -74,8 +76,16 @@ impl ProcessRepositoryCommand {
                         match std::fs::create_dir_all(&output_dir) {
                             Ok(_) => {}
                             Err(e) => {
-                                tracing::error!("Failed to create output directory {}: {}", output_dir.display(), e);
-                                eprintln!("Failed to create output directory {}: {}", output_dir.display(), e);
+                                tracing::error!(
+                                    "Failed to create output directory {}: {}",
+                                    output_dir.display(),
+                                    e
+                                );
+                                eprintln!(
+                                    "Failed to create output directory {}: {}",
+                                    output_dir.display(),
+                                    e
+                                );
                                 std::process::exit(1);
                             }
                         }
@@ -84,35 +94,42 @@ impl ProcessRepositoryCommand {
                             OutputFormat::Files => {
                                 // Save each fragment to a file
                                 for fragment in &result.fragments {
-                                    let filename = format!("{}-{:?}.md",
-                                                           fragment.file_path.replace('/', "_"),
-                                                           fragment.fragment_type
+                                    let filename = format!(
+                                        "{}-{:?}.md",
+                                        fragment.file_path.replace('/', "_"),
+                                        fragment.fragment_type
                                     );
                                     let fragment_file = output_dir.join(filename);
                                     std::fs::write(&fragment_file, &fragment.content)?;
                                 }
-                                tracing::info!("Processing completed. Files saved in: {}", output_dir.display());
-                            },
+                                tracing::info!(
+                                    "Processing completed. Files saved in: {}",
+                                    output_dir.display()
+                                );
+                            }
                             OutputFormat::Json => {
                                 let output_file = output_dir.join("fragments.json");
                                 let json_content = serde_json::to_string_pretty(&result)?;
                                 std::fs::write(&output_file, json_content)?;
-                                tracing::info!("Processing completed. JSON output saved in: {}", output_file.display());
-                            },
+                                tracing::info!(
+                                    "Processing completed. JSON output saved in: {}",
+                                    output_file.display()
+                                );
+                            }
                             OutputFormat::Html => {
                                 tracing::info!("HTML output format is not yet implemented.");
-                            },
+                            }
                         };
 
                         // Save processing summary
                         let summary_file = output_dir.join("processing-summary.json");
                         let summary = serde_json::json!({
-                                "repository": result.repository,
-                                "processed_at": result.processed_at,
-                                "file_processed": result.file_processed,
-                                "fragments_generated": result.fragments_generated,
-                                "processing_time_ms": result.processing_time_ms,
-                            });
+                            "repository": result.repository,
+                            "processed_at": result.processed_at,
+                            "file_processed": result.file_processed,
+                            "fragments_generated": result.fragments_generated,
+                            "processing_time_ms": result.processing_time_ms,
+                        });
                         std::fs::write(&summary_file, serde_json::to_string_pretty(&summary)?)?;
 
                         tracing::info!("Repository {} processed successfully.", self.repository);
@@ -126,13 +143,26 @@ impl ProcessRepositoryCommand {
                 }
             }
             Err(GitHubError::ConfigFileNotFound(_)) => {
-                tracing::error!("No configuration file found in repository: {}", self.repository);
-                eprintln!("No configuration file found in repository: {}", self.repository);
+                tracing::error!(
+                    "No configuration file found in repository: {}",
+                    self.repository
+                );
+                eprintln!(
+                    "No configuration file found in repository: {}",
+                    self.repository
+                );
                 std::process::exit(1);
             }
             Err(e) => {
-                tracing::error!("Error retrieving configuration for repository: {}: {}", self.repository, e);
-                eprintln!("Error retrieving configuration for repository {}: {}", self.repository, e);
+                tracing::error!(
+                    "Error retrieving configuration for repository: {}: {}",
+                    self.repository,
+                    e
+                );
+                eprintln!(
+                    "Error retrieving configuration for repository {}: {}",
+                    self.repository, e
+                );
                 std::process::exit(1);
             }
         }

@@ -1,7 +1,7 @@
+use crate::github::{Client, GitHubClient};
+use crate::{DocumentConfig, ProjectConfig};
 use std::collections::HashSet;
 use std::path::Path;
-use crate::{DocumentConfig, ProjectConfig};
-use crate::github::{Client, GitHubClient};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ValidationError {
@@ -24,18 +24,33 @@ pub enum ValidationError {
     MissingDocumentField { key: String, field: String },
 
     #[error("Document '{key}' has invalid path: {path} (reason: {reason})")]
-    InvalidDocumentPath { key: String, path: String, reason: String },
+    InvalidDocumentPath {
+        key: String,
+        path: String,
+        reason: String,
+    },
 
     #[error("Document '{key}' has neither 'path' or 'sub_documents' defined")]
     EmptyDocumentConfig { key: String },
 
     #[error("Sub-document #{index} in '{parent_key}' is missing required field: {field}")]
-    MissingSubDocumentField { parent_key: String, index: usize, field: String },
+    MissingSubDocumentField {
+        parent_key: String,
+        index: usize,
+        field: String,
+    },
 
     #[error("Sub-document #{index} in '{parent_key}' has invalid path: {path} (reason: {reason})")]
-    InvalidSubDocumentPath { parent_key: String, index: usize, path: String, reason: String },
+    InvalidSubDocumentPath {
+        parent_key: String,
+        index: usize,
+        path: String,
+        reason: String,
+    },
 
-    #[error("Sub-document #{index} in '{parent_key}' has neither 'path' or 'sub_documents' defined")]
+    #[error(
+        "Sub-document #{index} in '{parent_key}' has neither 'path' or 'sub_documents' defined"
+    )]
     EmptySubDocumentConfig { parent_key: String, index: usize },
 
     #[error("Document key '{key}' is not a valid identifier")]
@@ -48,13 +63,23 @@ pub enum ValidationError {
     CircularReference { key: String },
 
     #[error("Invalid path for document key '{key}': {path} (reason: {reason})")]
-    InvalidPath { key: String, path: String, reason: String },
+    InvalidPath {
+        key: String,
+        path: String,
+        reason: String,
+    },
 
     #[error("Document '{key}' references non-existent file in repository: {path}")]
     NonExistentFile { key: String, path: String },
 
-    #[error("Sub-document #{index} in '{parent_key}' references non-existent file in repository: {path}")]
-    NonExistentSubDocumentFile { parent_key: String, index: usize, path: String },
+    #[error(
+        "Sub-document #{index} in '{parent_key}' references non-existent file in repository: {path}"
+    )]
+    NonExistentSubDocumentFile {
+        parent_key: String,
+        index: usize,
+        path: String,
+    },
 }
 
 #[derive(Debug)]
@@ -132,11 +157,15 @@ impl<'a> ConfigValidator<'a> {
 
     fn validate_project(&self, config: &ProjectConfig, result: &mut ValidationResult) {
         if config.project.name.trim().is_empty() {
-            result.add_error(ValidationError::MissingProjectField { field: "name".to_string() });
+            result.add_error(ValidationError::MissingProjectField {
+                field: "name".to_string(),
+            });
         }
 
         if config.project.description.trim().is_empty() {
-            result.add_error(ValidationError::MissingProjectField { field: "description".to_string() });
+            result.add_error(ValidationError::MissingProjectField {
+                field: "description".to_string(),
+            });
         }
     }
 
@@ -147,15 +176,24 @@ impl<'a> ConfigValidator<'a> {
         for (key, document) in &config.documents {
             // Validate document key
             if !is_valid_identifier(key) {
-                result.add_error(ValidationError::InvalidDocumentKey { key: key.to_string() });
+                result.add_error(ValidationError::InvalidDocumentKey {
+                    key: key.to_string(),
+                });
             }
 
             // Check for circular references
             let mut current_path = vec![key.clone()];
-            self.validate_document_hierarchy(key, document, &mut current_path, &mut visited_keys, result);
+            self.validate_document_hierarchy(
+                key,
+                document,
+                &mut current_path,
+                &mut visited_keys,
+                result,
+            );
 
             // Validate document content and collect paths
-            self.validate_document_content(key, document, &mut all_paths, result).await;
+            self.validate_document_content(key, document, &mut all_paths, result)
+                .await;
         }
     }
 
@@ -182,7 +220,14 @@ impl<'a> ConfigValidator<'a> {
                 let sub_key = format!("{}[{}]", key, index);
                 current_path.push(sub_key.clone());
 
-                self.validate_sub_document_hierarchy(key, index, sub_document, current_path, visited_keys, result);
+                self.validate_sub_document_hierarchy(
+                    key,
+                    index,
+                    sub_document,
+                    current_path,
+                    visited_keys,
+                    result,
+                );
 
                 current_path.pop();
             }
@@ -205,7 +250,14 @@ impl<'a> ConfigValidator<'a> {
                 let nested_key = format!("{}[{}][{}]", parent_key, index, sub_index);
                 current_path.push(nested_key.clone());
 
-                self.validate_sub_document_hierarchy(parent_key, sub_index, nested_sub_document, current_path, visited_keys, result);
+                self.validate_sub_document_hierarchy(
+                    parent_key,
+                    sub_index,
+                    nested_sub_document,
+                    current_path,
+                    visited_keys,
+                    result,
+                );
 
                 current_path.pop();
             }
@@ -229,10 +281,15 @@ impl<'a> ConfigValidator<'a> {
 
         // Check that document has either path or sub_documents
         let has_path = document.path.is_some();
-        let has_sub_documents = document.sub_documents.as_ref().map_or(false, |subs| !subs.is_empty());
+        let has_sub_documents = document
+            .sub_documents
+            .as_ref()
+            .map_or(false, |subs| !subs.is_empty());
 
         if !has_path && !has_sub_documents {
-            result.add_error(ValidationError::EmptyDocumentConfig { key: key.to_string() });
+            result.add_error(ValidationError::EmptyDocumentConfig {
+                key: key.to_string(),
+            });
         }
 
         // Validate path if it exists
@@ -243,7 +300,10 @@ impl<'a> ConfigValidator<'a> {
         // Validate sub_documents if they exist
         if let Some(sub_documents) = &document.sub_documents {
             for (index, sub_doc) in sub_documents.iter().enumerate() {
-                Box::pin(self.validate_sub_document_content(key, index, sub_doc, all_paths, result)).await;
+                Box::pin(
+                    self.validate_sub_document_content(key, index, sub_doc, all_paths, result),
+                )
+                .await;
             }
         }
     }
@@ -271,7 +331,10 @@ impl<'a> ConfigValidator<'a> {
 
             // Check that sub_document has either path or sub_documents
             let has_path = sub_document.path.is_some();
-            let has_sub_documents = sub_document.sub_documents.as_ref().map_or(false, |subs| !subs.is_empty());
+            let has_sub_documents = sub_document
+                .sub_documents
+                .as_ref()
+                .map_or(false, |subs| !subs.is_empty());
 
             if !has_path && !has_sub_documents {
                 result.add_error(ValidationError::EmptySubDocumentConfig {
@@ -282,7 +345,8 @@ impl<'a> ConfigValidator<'a> {
 
             // Validate path if it exists
             if let Some(path) = &sub_document.path {
-                self.validate_sub_document_path(parent_key, index, path, all_paths, result).await;
+                self.validate_sub_document_path(parent_key, index, path, all_paths, result)
+                    .await;
             }
 
             // Recursively validate nested sub_documents
@@ -294,13 +358,20 @@ impl<'a> ConfigValidator<'a> {
                         nested_sub_doc,
                         all_paths,
                         result,
-                    ).await;
+                    )
+                    .await;
                 }
             }
         })
     }
 
-    async fn validate_path(&self, key: &str, path: &Path, all_paths: &mut HashSet<String>, result: &mut ValidationResult) {
+    async fn validate_path(
+        &self,
+        key: &str,
+        path: &Path,
+        all_paths: &mut HashSet<String>,
+        result: &mut ValidationResult,
+    ) {
         let path_str = path.to_string_lossy().to_string();
 
         // Check for absolute paths
@@ -323,13 +394,15 @@ impl<'a> ConfigValidator<'a> {
 
         // Check for duplicate paths
         if !all_paths.insert(path_str.clone()) {
-            result.add_error(ValidationError::DuplicateDocumentPath { path: path_str.clone() });
+            result.add_error(ValidationError::DuplicateDocumentPath {
+                path: path_str.clone(),
+            });
         }
 
         // Check file existence if enabled
         if let (Some(github_client), Some(repository), Some(base_path)) =
-            (self.github_client, self.repository, self.base_path) {
-
+            (self.github_client, self.repository, self.base_path)
+        {
             let full_path = if base_path == "." {
                 path_str.clone()
             } else {
@@ -397,19 +470,21 @@ impl<'a> ConfigValidator<'a> {
                 parent_key: parent_key.to_string(),
                 index,
                 path: path_str.clone(),
-                reason: "parent directory references ('..') are not allowed".to_string()
+                reason: "parent directory references ('..') are not allowed".to_string(),
             });
         }
 
         // Check for duplicate paths
         if !all_paths.insert(path_str.clone()) {
-            result.add_error(ValidationError::DuplicateDocumentPath { path: path_str.clone() });
+            result.add_error(ValidationError::DuplicateDocumentPath {
+                path: path_str.clone(),
+            });
         }
 
         // Check for file existence if enabled
         if let (Some(github_client), Some(repository), Some(base_path)) =
-            (self.github_client, self.repository, self.base_path) {
-
+            (self.github_client, self.repository, self.base_path)
+        {
             let full_path = if base_path == "." {
                 path_str.clone()
             } else {
@@ -461,10 +536,10 @@ impl<'a> Default for ConfigValidator<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ProjectConfig, DocumentConfig};
+    use crate::ProjectDetails;
+    use crate::{DocumentConfig, ProjectConfig};
     use std::collections::HashMap;
     use std::path::PathBuf;
-    use crate::ProjectDetails;
 
     fn create_test_config() -> ProjectConfig {
         ProjectConfig {
@@ -492,7 +567,10 @@ mod tests {
         let result = validator.validate(&config).await;
 
         assert!(result.is_valid, "Expected config to be valid");
-        assert!(result.errors.is_empty(), "Expected no errors in valid config");
+        assert!(
+            result.errors.is_empty(),
+            "Expected no errors in valid config"
+        );
     }
 
     #[tokio::test]
@@ -504,8 +582,15 @@ mod tests {
         let validator = ConfigValidator::new();
         let result = validator.validate(&config).await;
 
-        assert!(!result.is_valid, "Expected config to be invalid due to missing project fields");
-        assert_eq!(result.errors.len(), 2, "Expected 2 errors for missing project fields");
+        assert!(
+            !result.is_valid,
+            "Expected config to be invalid due to missing project fields"
+        );
+        assert_eq!(
+            result.errors.len(),
+            2,
+            "Expected 2 errors for missing project fields"
+        );
     }
 
     #[tokio::test]
@@ -524,7 +609,12 @@ mod tests {
         let result = validator.validate(&config).await;
 
         assert!(!result.is_valid, "Expected empty doc to be valid");
-        assert!(result.errors.iter().any(|e| matches!(e, ValidationError::EmptyDocumentConfig { .. })))
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|e| matches!(e, ValidationError::EmptyDocumentConfig { .. }))
+        )
     }
 
     #[tokio::test]
@@ -543,7 +633,12 @@ mod tests {
         let result = validator.validate(&config).await;
 
         assert!(!result.is_valid, "Expected bad doc to be valid");
-        assert!(result.errors.iter().any(|e| matches!(e, ValidationError::InvalidPath { .. })));
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|e| matches!(e, ValidationError::InvalidPath { .. }))
+        );
     }
 
     #[tokio::test]
@@ -557,7 +652,7 @@ mod tests {
                 title: "Document 1".to_string(),
                 path: Some(shared_path.clone()),
                 sub_documents: None,
-            }
+            },
         );
         config.documents.insert(
             "doc2".to_string(),
@@ -565,14 +660,19 @@ mod tests {
                 title: "Document 2".to_string(),
                 path: Some(shared_path.clone()),
                 sub_documents: None,
-            }
+            },
         );
 
         let validator = ConfigValidator::new();
         let result = validator.validate(&config).await;
 
         assert!(!result.is_valid, "Expected duplicate document path");
-        assert!(result.errors.iter().any(|e| matches!(e, ValidationError::DuplicateDocumentPath { .. })));
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|e| matches!(e, ValidationError::DuplicateDocumentPath { .. }))
+        );
     }
 
     #[tokio::test]
@@ -584,14 +684,19 @@ mod tests {
                 title: "Invalid Key Document".to_string(),
                 path: Some(PathBuf::from("docs/invalid.md")),
                 sub_documents: None,
-            }
+            },
         );
 
         let validator = ConfigValidator::new();
         let result = validator.validate(&config).await;
 
         assert!(!result.is_valid, "Expected invalid key");
-        assert!(result.errors.iter().any(|e| matches!(e, ValidationError::InvalidDocumentKey { .. })));
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|e| matches!(e, ValidationError::InvalidDocumentKey { .. }))
+        );
     }
 
     #[tokio::test]
@@ -618,16 +723,31 @@ mod tests {
         ));
 
         // Verify that the warning was added
-        assert!(!result.warnings.is_empty(), "Expected a warning for missing file");
-        assert!(result.warnings.iter().any(|w| w.contains("non-existent file")), 
-                "Expected warning to mention non-existent file");
-        assert!(result.warnings.iter().any(|w| w.contains(key)), 
-                "Expected warning to mention the document key");
-        assert!(result.warnings.iter().any(|w| w.contains(full_path)), 
-                "Expected warning to mention the file path");
+        assert!(
+            !result.warnings.is_empty(),
+            "Expected a warning for missing file"
+        );
+        assert!(
+            result
+                .warnings
+                .iter()
+                .any(|w| w.contains("non-existent file")),
+            "Expected warning to mention non-existent file"
+        );
+        assert!(
+            result.warnings.iter().any(|w| w.contains(key)),
+            "Expected warning to mention the document key"
+        );
+        assert!(
+            result.warnings.iter().any(|w| w.contains(full_path)),
+            "Expected warning to mention the file path"
+        );
 
         // Verify that the validation is still valid (warnings don't cause validation to fail)
-        assert!(result.is_valid, "Expected validation to still be valid despite warnings");
+        assert!(
+            result.is_valid,
+            "Expected validation to still be valid despite warnings"
+        );
 
         // In validate_sub_document_path, when a file doesn't exist, it also adds a warning:
         let mut result = ValidationResult::new();
@@ -642,18 +762,37 @@ mod tests {
         ));
 
         // Verify that the warning was added
-        assert!(!result.warnings.is_empty(), "Expected a warning for missing file in sub-document");
-        assert!(result.warnings.iter().any(|w| w.contains("non-existent file")), 
-                "Expected warning to mention non-existent file");
-        assert!(result.warnings.iter().any(|w| w.contains(parent_key)), 
-                "Expected warning to mention the parent document key");
-        assert!(result.warnings.iter().any(|w| w.contains(&index.to_string())), 
-                "Expected warning to mention the sub-document index");
-        assert!(result.warnings.iter().any(|w| w.contains(full_path)), 
-                "Expected warning to mention the file path");
+        assert!(
+            !result.warnings.is_empty(),
+            "Expected a warning for missing file in sub-document"
+        );
+        assert!(
+            result
+                .warnings
+                .iter()
+                .any(|w| w.contains("non-existent file")),
+            "Expected warning to mention non-existent file"
+        );
+        assert!(
+            result.warnings.iter().any(|w| w.contains(parent_key)),
+            "Expected warning to mention the parent document key"
+        );
+        assert!(
+            result
+                .warnings
+                .iter()
+                .any(|w| w.contains(&index.to_string())),
+            "Expected warning to mention the sub-document index"
+        );
+        assert!(
+            result.warnings.iter().any(|w| w.contains(full_path)),
+            "Expected warning to mention the file path"
+        );
 
         // Verify that the validation is still valid (warnings don't cause validation to fail)
-        assert!(result.is_valid, "Expected validation to still be valid despite warnings");
+        assert!(
+            result.is_valid,
+            "Expected validation to still be valid despite warnings"
+        );
     }
-
 }

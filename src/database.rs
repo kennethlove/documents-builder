@@ -1,7 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::{PgPool, Row};
-use std::collections::HashMap;
+use sqlx::PgPool;
 use uuid::Uuid;
 
 #[derive(Debug, Clone)]
@@ -288,7 +287,7 @@ RETURNING *
         sqlx::query!(
             r#"
             UPDATE processing_jobs
-            SET status $2, error_message = $3, completed_at = $4, updated_at = $5
+            SET status = $2, error_message = $3, completed_at = $4, updated_at = $5
             WHERE id = $1
             "#,
             job_id,
@@ -302,7 +301,7 @@ RETURNING *
 
         Ok(())
     }
-    
+
     pub async fn get_active_jobs(&self) -> Result<Vec<ProcessingJob>, DatabaseError> {
         let jobs = sqlx::query_as!(
             ProcessingJob,
@@ -317,28 +316,54 @@ RETURNING *
 
 #[cfg(test)]
 mod tests {
+    use sqlx::Row;
     use super::*;
-    use tempfile::TempDir;
-    
+
     async fn create_test_db() -> Database {
-        let db_url = std::env::var("TEST_DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://postgres:password@localhost/documents_test".to_string());
-        
-        let db = Database::new(&db_url).await.expect("Failed to create test database");
+        let db_url = std::env::var("TEST_DATABASE_URL").unwrap_or_else(|_| {
+            "postgres://test_user:test_password@localhost:5432/documents_test".to_string()
+        });
+
+        let db = Database::new(&db_url)
+            .await
+            .expect("Failed to create test database");
         db.migrate().await.expect("Failed to migrate test database");
         db
     }
-    
+
+    async fn reset_test_db() -> Result<(), sqlx::Error> {
+        let db_url = std::env::var("TEST_DATABASE_URL").unwrap_or_else(|_| {
+            "postgres://test_user:test_password@localhost:5432/documents_test".to_string()
+        });
+
+        let pool = PgPool::connect(&db_url).await?;
+        let tables: Vec<String> = sqlx::query("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
+            .fetch_all(&pool)
+            .await?
+            .into_iter()
+            .map(|row| row.get::<String, _>(0))
+            .collect();
+
+        for table in tables {
+            sqlx::query(&format!("TRUNCATE TABLE {} RESTART IDENTITY CASCADE", table))
+                .execute(&pool)
+                .await?;
+        }
+
+        pool.close().await;
+        Ok(())
+    }
+
     #[tokio::test]
     async fn test_database_health_check() {
         let db = create_test_db().await;
         assert!(db.health_check().await.is_ok());
     }
-    
+
     #[tokio::test]
     async fn test_repository_operations() {
         let db = create_test_db().await;
-        
+
         let repo = Repository {
             id: Uuid::new_v4(),
             name: "test-repo".to_string(),
@@ -355,15 +380,20 @@ mod tests {
             created_at: Utc::now(),
             updated_at: Utc::now(),
         };
-        
-        let saved_repo = db.upsert_repository(&repo).await.expect("Failed to upsert repository");
+
+        let saved_repo = db
+            .upsert_repository(&repo)
+            .await
+            .expect("Failed to upsert repository");
         assert_eq!(saved_repo.name, repo.name);
-        
+
         let retrieved_repo = db
             .get_repository_by_full_name(&repo.full_name)
             .await
             .expect("Failed to retrieve repository");
-        
+
         assert_eq!(retrieved_repo.id, saved_repo.id);
+
+        reset_test_db().await.expect("Failed to reset database");
     }
 }

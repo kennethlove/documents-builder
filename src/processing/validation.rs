@@ -1,6 +1,8 @@
+use crate::processing::pipeline::{
+    DiscoveredFile, PipelineError, ProcessingContext, ValidatedFile,
+};
 use std::collections::HashMap;
 use tracing::{debug, warn};
-use crate::processing::pipeline::{DiscoveredFile, PipelineError, ProcessingContext, ValidatedFile};
 
 pub struct ContentValidator<'a> {
     context: &'a ProcessingContext,
@@ -11,11 +13,14 @@ impl<'a> ContentValidator<'a> {
         Self { context }
     }
 
-    pub async fn validate_batch(&self, files: Vec<DiscoveredFile>) -> Result<Vec<ValidatedFile>, PipelineError> {
+    pub async fn validate_batch(
+        &self,
+        files: Vec<DiscoveredFile>,
+    ) -> Result<Vec<ValidatedFile>, PipelineError> {
         let mut validated_files = Vec::new();
 
         for file in files {
-            let file_path= file.path.clone();
+            let file_path = file.path.clone();
             match self.validate_file(file).await {
                 Ok(validated) => validated_files.push(validated),
                 Err(e) => {
@@ -31,7 +36,9 @@ impl<'a> ContentValidator<'a> {
         debug!("Validating file: {}", file.path);
 
         // Fetch file content
-        let content = self.context.github_client
+        let content = self
+            .context
+            .github_client
             .get_file_content(&self.context.repository, &file.path)
             .await
             .map_err(PipelineError::GitHub)?;
@@ -73,14 +80,22 @@ impl<'a> ContentValidator<'a> {
         for line in yaml_text.lines() {
             if let Some((key, value)) = line.split_once(':') {
                 let key = key.trim().to_string();
-                let value = value.trim().trim_matches('"').trim_matches('\'').to_string();
+                let value = value
+                    .trim()
+                    .trim_matches('"')
+                    .trim_matches('\'')
+                    .to_string();
                 metadata.insert(key, value);
             }
         }
         metadata
     }
 
-    fn validate_content(&self, markdown_content: &str, frontmatter: &HashMap<String, String>) -> Vec<String> {
+    fn validate_content(
+        &self,
+        markdown_content: &str,
+        frontmatter: &HashMap<String, String>,
+    ) -> Vec<String> {
         let mut warnings = Vec::new();
 
         // Check for title
@@ -97,7 +112,10 @@ impl<'a> ContentValidator<'a> {
         if markdown_content.contains("](") {
             let broken_links = self.find_potentially_broken_links(markdown_content);
             if !broken_links.is_empty() {
-                warnings.push(format!("Found {} potentially broken links", broken_links.len()));
+                warnings.push(format!(
+                    "Found {} potentially broken links",
+                    broken_links.len()
+                ));
             }
         }
 
@@ -158,7 +176,7 @@ mod tests {
         let processor = crate::processing::RepositoryProcessor::new(
             create_dummy_github_client(),
             config.clone(),
-            "test-repo".to_string()
+            "test-repo".to_string(),
         );
 
         ProcessingContext {
@@ -178,7 +196,10 @@ mod tests {
         let (frontmatter, markdown) = validator.parse_frontmatter(content);
 
         assert!(frontmatter.is_empty(), "Expected empty frontmatter");
-        assert_eq!(markdown, content, "Expected original content to be returned");
+        assert_eq!(
+            markdown, content,
+            "Expected original content to be returned"
+        );
     }
 
     #[tokio::test]
@@ -192,7 +213,10 @@ mod tests {
         assert_eq!(frontmatter.len(), 2, "Expected 2 frontmatter items");
         assert_eq!(frontmatter.get("title"), Some(&"Test Document".to_string()));
         assert_eq!(frontmatter.get("author"), Some(&"Test Author".to_string()));
-        assert_eq!(markdown, "# Document content", "Expected markdown content without frontmatter");
+        assert_eq!(
+            markdown, "# Document content",
+            "Expected markdown content without frontmatter"
+        );
     }
 
     #[tokio::test]
@@ -204,8 +228,14 @@ mod tests {
         let content = "---\ntitle: Test Document\nauthor: Test Author\n# Document content";
         let (frontmatter, markdown) = validator.parse_frontmatter(content);
 
-        assert!(frontmatter.is_empty(), "Expected empty frontmatter for incomplete frontmatter");
-        assert_eq!(markdown, content, "Expected original content to be returned");
+        assert!(
+            frontmatter.is_empty(),
+            "Expected empty frontmatter for incomplete frontmatter"
+        );
+        assert_eq!(
+            markdown, content,
+            "Expected original content to be returned"
+        );
     }
 
     #[tokio::test]
@@ -244,7 +274,10 @@ mod tests {
         let yaml_text = "";
         let frontmatter = validator.parse_yaml_frontmatter(yaml_text);
 
-        assert!(frontmatter.is_empty(), "Expected empty frontmatter for empty yaml");
+        assert!(
+            frontmatter.is_empty(),
+            "Expected empty frontmatter for empty yaml"
+        );
     }
 
     #[tokio::test]
@@ -259,7 +292,10 @@ mod tests {
 
         assert_eq!(warnings.len(), 2, "Expected 2 warnings");
         assert!(warnings.contains(&"Missing title in frontmatter or as first heading".to_string()));
-        assert!(warnings.contains(&"Content is too short, consider adding more information".to_string()));
+        assert!(
+            warnings
+                .contains(&"Content is too short, consider adding more information".to_string())
+        );
     }
 
     #[tokio::test]
@@ -274,7 +310,10 @@ mod tests {
         let warnings = validator.validate_content(markdown, &frontmatter);
 
         assert_eq!(warnings.len(), 1, "Expected 1 warning");
-        assert!(warnings.contains(&"Content is too short, consider adding more information".to_string()));
+        assert!(
+            warnings
+                .contains(&"Content is too short, consider adding more information".to_string())
+        );
     }
 
     #[tokio::test]
@@ -288,7 +327,10 @@ mod tests {
         let warnings = validator.validate_content(markdown, &frontmatter);
 
         assert_eq!(warnings.len(), 1, "Expected 1 warning");
-        assert!(warnings.contains(&"Content is too short, consider adding more information".to_string()));
+        assert!(
+            warnings
+                .contains(&"Content is too short, consider adding more information".to_string())
+        );
     }
 
     #[tokio::test]
@@ -302,7 +344,10 @@ mod tests {
         let warnings = validator.validate_content(markdown, &frontmatter);
 
         assert_eq!(warnings.len(), 1, "Expected 1 warning");
-        assert!(warnings[0].contains("potentially broken links"), "Expected warning about broken links");
+        assert!(
+            warnings[0].contains("potentially broken links"),
+            "Expected warning about broken links"
+        );
     }
 
     #[tokio::test]
@@ -315,7 +360,10 @@ mod tests {
 
         let warnings = validator.validate_content(markdown, &frontmatter);
 
-        assert!(warnings.is_empty(), "Expected no warnings for valid content");
+        assert!(
+            warnings.is_empty(),
+            "Expected no warnings for valid content"
+        );
     }
 
     #[tokio::test]

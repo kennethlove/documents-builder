@@ -35,11 +35,11 @@ processing, and basic documentation serving with search capabilities.
 
 **Priority: Critical**
 
-- [ ] Add PostgreSQL dependency (`sqlx`) to Cargo.toml
-- [ ] Design core database schema
-- [ ] Implement database migrations system
-- [ ] Add database connection pooling
-- [ ] Create database health checks
+- [x] Add PostgreSQL dependency (`sqlx`) to Cargo.toml
+- [x] Design core database schema
+- [x] Implement database migrations system
+- [x] Add database connection pooling
+- [x] Create database health checks
 
 ### 1.2 Enhanced CLI Foundation
 
@@ -49,8 +49,8 @@ processing, and basic documentation serving with search capabilities.
 - [ ] Add `scan-org` command for full organization scanning
 - [ ] Add `process-repo <repo-name>` command for single repository processing
 - [ ] Add `search <query>` command for testing search functionality
-- [ ] Add `status` command for system health and processing status
-- [ ] Add `validate-config <repo-name>` command for testing repository configurations
+- [x] Add `health-check` command for system health and processing status
+- [ ] Add `validate-repo-config <repo-name>` command for testing repository configurations
 - [ ] Implement progress bars and better user feedback for all commands
 
 ### 1.3 Configuration Management
@@ -58,9 +58,9 @@ processing, and basic documentation serving with search capabilities.
 **Priority: High**
 
 - [x] Environment variable configuration (`GITHUB_TOKEN`, `GITHUB_ORGANIZATION`)
-- [ ] Add `DATABASE_URL` environment variable support
+- [x] Add `DATABASE_URL` environment variable support
 - [ ] Add `MEILISEARCH_URL` and `MEILISEARCH_KEY` configuration
-- [ ] Create configuration validation system
+- [x] Create configuration validation system
 - [ ] Add configuration file support for local development
 - [ ] Implement configuration precedence (env vars > config file > defaults)
 
