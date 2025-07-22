@@ -316,53 +316,17 @@ RETURNING *
 
 #[cfg(test)]
 mod tests {
-    use sqlx::Row;
     use super::*;
 
-    async fn create_test_db() -> Database {
-        let db_url = std::env::var("TEST_DATABASE_URL").unwrap_or_else(|_| {
-            "postgres://test_user:test_password@localhost:5432/documents_test".to_string()
-        });
-
-        let db = Database::new(&db_url)
-            .await
-            .expect("Failed to create test database");
-        db.migrate().await.expect("Failed to migrate test database");
-        db
-    }
-
-    async fn reset_test_db() -> Result<(), sqlx::Error> {
-        let db_url = std::env::var("TEST_DATABASE_URL").unwrap_or_else(|_| {
-            "postgres://test_user:test_password@localhost:5432/documents_test".to_string()
-        });
-
-        let pool = PgPool::connect(&db_url).await?;
-        let tables: Vec<String> = sqlx::query("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
-            .fetch_all(&pool)
-            .await?
-            .into_iter()
-            .map(|row| row.get::<String, _>(0))
-            .collect();
-
-        for table in tables {
-            sqlx::query(&format!("TRUNCATE TABLE {} RESTART IDENTITY CASCADE", table))
-                .execute(&pool)
-                .await?;
-        }
-
-        pool.close().await;
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_database_health_check() {
-        let db = create_test_db().await;
+    #[sqlx::test]
+    async fn test_database_health_check(pool: PgPool) {
+        let db = Database { pool };
         assert!(db.health_check().await.is_ok());
     }
 
-    #[tokio::test]
-    async fn test_repository_operations() {
-        let db = create_test_db().await;
+    #[sqlx::test]
+    async fn test_repository_operations(pool: PgPool) {
+        let db = Database { pool };
 
         let repo = Repository {
             id: Uuid::new_v4(),
@@ -393,7 +357,229 @@ mod tests {
             .expect("Failed to retrieve repository");
 
         assert_eq!(retrieved_repo.id, saved_repo.id);
+    }
+    
+    #[sqlx::test]
+    async fn test_list_repositories_with_documents(pool: PgPool) {
+        // Use the standard test database
+        let db = Database { pool };
+        
+        // Generate a unique identifier for this test
+        let unique_id = Uuid::new_v4().to_string().split('-').next().unwrap().to_string();
+        let with_docs_name = format!("repo-with-docs-{}", unique_id);
+        let without_docs_name = format!("repo-without-docs-{}", unique_id);
+        
+        // Create two repositories, one with documents config and one without
+        let repo1 = Repository {
+            id: Uuid::new_v4(),
+            name: with_docs_name.clone(),
+            full_name: format!("org/{}", with_docs_name),
+            description: Some("Repository with documents".to_string()),
+            default_branch: "main".to_string(),
+            is_private: false,
+            is_archived: false,
+            is_fork: false,
+            has_documents_config: true,
+            documents_config: Some(r#"{"project": {"name": "Test"}}"#.to_string()),
+            last_scanned_at: Some(Utc::now()),
+            last_processed_at: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+        
+        let repo2 = Repository {
+            id: Uuid::new_v4(),
+            name: without_docs_name.clone(),
+            full_name: format!("org/{}", without_docs_name),
+            description: Some("Repository without documents".to_string()),
+            default_branch: "main".to_string(),
+            is_private: false,
+            is_archived: false,
+            is_fork: false,
+            has_documents_config: false,
+            documents_config: None,
+            last_scanned_at: Some(Utc::now()),
+            last_processed_at: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+        
+        // Insert both repositories
+        db.upsert_repository(&repo1).await.expect("Failed to upsert repository 1");
+        db.upsert_repository(&repo2).await.expect("Failed to upsert repository 2");
+        
+        // List repositories with documents
+        let repos = db.list_repositories_with_documents().await.expect("Failed to list repositories");
+        
+        // Find our test repository with documents
+        let test_repo = repos.iter().find(|r| r.name == with_docs_name);
+        
+        // Verify that our test repository with documents exists and has the right properties
+        assert!(test_repo.is_some(), "Test repository with documents not found");
+        let test_repo = test_repo.unwrap();
+        assert_eq!(test_repo.name, with_docs_name);
+        assert_eq!(test_repo.has_documents_config, true);
+    }
+    
+    #[sqlx::test]
+    async fn test_document_operations(pool: PgPool) {
+        let db = Database { pool };
 
-        reset_test_db().await.expect("Failed to reset database");
+        // Create a repository first
+        let repo = Repository {
+            id: Uuid::new_v4(),
+            name: "test-repo".to_string(),
+            full_name: "test-org/test-repo".to_string(),
+            description: Some("A test repository".to_string()),
+            default_branch: "main".to_string(),
+            is_private: false,
+            is_archived: false,
+            is_fork: false,
+            has_documents_config: true,
+            documents_config: Some(r#"{"project": {"name": "Test"}}"#.to_string()),
+            last_scanned_at: Some(Utc::now()),
+            last_processed_at: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+        
+        let saved_repo = db.upsert_repository(&repo).await.expect("Failed to upsert repository");
+        
+        // Create a document
+        let doc = Document {
+            id: Uuid::new_v4(),
+            repository_id: saved_repo.id,
+            file_path: "docs/readme.md".to_string(),
+            title: "README".to_string(),
+            content: "# Test Document\n\nThis is a test document.".to_string(),
+            content_hash: "abc123".to_string(),
+            metadata: Some(r#"{"tags": ["test", "documentation"]}"#.to_string()),
+            file_size: 42,
+            last_modified_at: Utc::now(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+        
+        // Test upsert_document
+        let saved_doc = db.upsert_document(&doc).await.expect("Failed to upsert document");
+        assert_eq!(saved_doc.title, doc.title);
+        assert_eq!(saved_doc.file_path, doc.file_path);
+        
+        // Test get_document_by_path
+        let retrieved_doc = db.get_document_by_path(saved_repo.id, &doc.file_path)
+            .await
+            .expect("Failed to retrieve document by path");
+        assert_eq!(retrieved_doc.id, saved_doc.id);
+        assert_eq!(retrieved_doc.title, saved_doc.title);
+        
+        // Create another document for the same repository
+        let doc2 = Document {
+            id: Uuid::new_v4(),
+            repository_id: saved_repo.id,
+            file_path: "docs/api.md".to_string(),
+            title: "API Documentation".to_string(),
+            content: "# API Documentation\n\nThis is the API documentation.".to_string(),
+            content_hash: "def456".to_string(),
+            metadata: Some(r#"{"tags": ["api", "documentation"]}"#.to_string()),
+            file_size: 55,
+            last_modified_at: Utc::now(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+        
+        db.upsert_document(&doc2).await.expect("Failed to upsert second document");
+        
+        // Test get_documents_by_repository
+        let docs = db.get_documents_by_repository(saved_repo.id)
+            .await
+            .expect("Failed to retrieve documents by repository");
+        
+        assert_eq!(docs.len(), 2);
+        // Documents should be ordered by file_path
+        assert_eq!(docs[0].file_path, "docs/api.md");
+        assert_eq!(docs[1].file_path, "docs/readme.md");
+    }
+    
+    #[sqlx::test]
+    async fn test_processing_job_operations(pool: PgPool) {
+        let db = Database { pool };
+
+        // Create a repository first
+        let repo = Repository {
+            id: Uuid::new_v4(),
+            name: "test-repo".to_string(),
+            full_name: "test-org/test-repo".to_string(),
+            description: Some("A test repository".to_string()),
+            default_branch: "main".to_string(),
+            is_private: false,
+            is_archived: false,
+            is_fork: false,
+            has_documents_config: true,
+            documents_config: Some(r#"{"project": {"name": "Test"}}"#.to_string()),
+            last_scanned_at: Some(Utc::now()),
+            last_processed_at: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+        
+        let saved_repo = db.upsert_repository(&repo).await.expect("Failed to upsert repository");
+        
+        // Create a processing job
+        let job = ProcessingJob {
+            id: Uuid::new_v4(),
+            repository_id: Some(saved_repo.id),
+            job_type: "process_repository".to_string(),
+            status: "pending".to_string(),
+            parameters: Some(r#"{"branch": "main"}"#.to_string()),
+            error_message: None,
+            started_at: None,
+            completed_at: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+        
+        // Test create_processing_job
+        let saved_job = db.create_processing_job(&job).await.expect("Failed to create processing job");
+        assert_eq!(saved_job.job_type, job.job_type);
+        assert_eq!(saved_job.status, "pending");
+        
+        // Test update_job_status - mark as running
+        db.update_job_status(saved_job.id, "running", None)
+            .await
+            .expect("Failed to update job status to running");
+        
+        // Create another pending job
+        let job2 = ProcessingJob {
+            id: Uuid::new_v4(),
+            repository_id: Some(saved_repo.id),
+            job_type: "scan_organization".to_string(),
+            status: "pending".to_string(),
+            parameters: None,
+            error_message: None,
+            started_at: None,
+            completed_at: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+        
+        db.create_processing_job(&job2).await.expect("Failed to create second processing job");
+        
+        // Test get_active_jobs
+        let active_jobs = db.get_active_jobs().await.expect("Failed to get active jobs");
+        assert_eq!(active_jobs.len(), 2);
+        
+        // Test update_job_status - mark as completed
+        db.update_job_status(saved_job.id, "completed", None)
+            .await
+            .expect("Failed to update job status to completed");
+        
+        // Test update_job_status - mark as failed with error message
+        db.update_job_status(job2.id, "failed", Some("Test error message"))
+            .await
+            .expect("Failed to update job status to failed");
+        
+        // Test get_active_jobs again - should be empty now
+        let active_jobs = db.get_active_jobs().await.expect("Failed to get active jobs");
+        assert_eq!(active_jobs.len(), 0);
     }
 }
