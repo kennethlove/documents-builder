@@ -35,68 +35,11 @@ processing, and basic documentation serving with search capabilities.
 
 **Priority: Critical**
 
-- [ ] Add PostgreSQL dependency (`sqlx`) to Cargo.toml
-- [ ] Design core database schema:
-
-```sql
--- Organizations table
-CREATE TABLE organizations
-(
-    id                SERIAL PRIMARY KEY,
-    name              VARCHAR(255) NOT NULL UNIQUE,
-    github_token_hash VARCHAR(255) NOT NULL,
-    created_at        TIMESTAMP DEFAULT NOW(),
-    updated_at        TIMESTAMP DEFAULT NOW()
-);
-
--- Repositories table
-CREATE TABLE repositories
-(
-    id                   SERIAL PRIMARY KEY,
-    org_id               INTEGER REFERENCES organizations (id),
-    name                 VARCHAR(255) NOT NULL,
-    full_name            VARCHAR(255) NOT NULL UNIQUE,
-    has_documents_config BOOLEAN   DEFAULT FALSE,
-    last_processed_at    TIMESTAMP,
-    last_commit_sha      VARCHAR(40),
-    is_active            BOOLEAN   DEFAULT TRUE,
-    created_at           TIMESTAMP DEFAULT NOW(),
-    updated_at           TIMESTAMP DEFAULT NOW()
-);
-
--- Documents table
-CREATE TABLE documents
-(
-    id           SERIAL PRIMARY KEY,
-    repo_id      INTEGER REFERENCES repositories (id),
-    file_path    VARCHAR(500) NOT NULL,
-    title        VARCHAR(500),
-    content      TEXT         NOT NULL,
-    content_hash VARCHAR(64)  NOT NULL,
-    metadata     JSONB,
-    created_at   TIMESTAMP DEFAULT NOW(),
-    updated_at   TIMESTAMP DEFAULT NOW(),
-    UNIQUE (repo_id, file_path)
-);
-
--- Processing jobs table
-CREATE TABLE processing_jobs
-(
-    id            SERIAL PRIMARY KEY,
-    job_type      VARCHAR(50) NOT NULL,
-    target_type   VARCHAR(50) NOT NULL, -- 'organization' or 'repository'
-    target_id     INTEGER     NOT NULL,
-    status        VARCHAR(50) DEFAULT 'pending',
-    started_at    TIMESTAMP,
-    completed_at  TIMESTAMP,
-    error_message TEXT,
-    created_at    TIMESTAMP   DEFAULT NOW()
-);
-```
-
-- [ ] Implement database migrations system
-- [ ] Add database connection pooling
-- [ ] Create database health checks
+- [x] Add PostgreSQL dependency (`sqlx`) to Cargo.toml
+- [x] Design core database schema
+- [x] Implement database migrations system
+- [x] Add database connection pooling
+- [x] Create database health checks
 
 ### 1.2 Enhanced CLI Foundation
 
@@ -106,8 +49,8 @@ CREATE TABLE processing_jobs
 - [ ] Add `scan-org` command for full organization scanning
 - [ ] Add `process-repo <repo-name>` command for single repository processing
 - [ ] Add `search <query>` command for testing search functionality
-- [ ] Add `status` command for system health and processing status
-- [ ] Add `validate-config <repo-name>` command for testing repository configurations
+- [x] Add `health-check` command for system health and processing status
+- [ ] Add `validate-repo-config <repo-name>` command for testing repository configurations
 - [ ] Implement progress bars and better user feedback for all commands
 
 ### 1.3 Configuration Management
@@ -115,9 +58,9 @@ CREATE TABLE processing_jobs
 **Priority: High**
 
 - [x] Environment variable configuration (`GITHUB_TOKEN`, `GITHUB_ORGANIZATION`)
-- [ ] Add `DATABASE_URL` environment variable support
+- [x] Add `DATABASE_URL` environment variable support
 - [ ] Add `MEILISEARCH_URL` and `MEILISEARCH_KEY` configuration
-- [ ] Create configuration validation system
+- [x] Create configuration validation system
 - [ ] Add configuration file support for local development
 - [ ] Implement configuration precedence (env vars > config file > defaults)
 
@@ -128,20 +71,7 @@ CREATE TABLE processing_jobs
 **Priority: Critical**
 
 - [ ] Implement GitHub API client with rate limiting
-- [ ] Create organization repository enumeration:
-
-```rust
-pub async fn scan_organization(
-    github_token: &str,
-    org_name: &str,
-) -> Result<Vec<Repository>, ScanError> {
-    // Discover all repositories in organization
-    // Filter out archived repositories
-    // Check for documents.toml in each repository
-    // Return list of repositories with documentation
-}
-```
-
+- [ ] Create organization repository enumeration
 - [ ] Add repository filtering (public/private, archived, fork status)
 - [ ] Implement `documents.toml` detection across all repositories
 - [ ] Add repository metadata extraction (description, topics, language)

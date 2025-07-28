@@ -107,6 +107,15 @@ Not all branches will be indexed by default. The Scanner will only capture the d
 are indicated in the `documents.toml` file for each repository. This will allow users to control which branches
 are included in the documentation and which branches are excluded.
 
+### Document Grading
+
+The Documents application will provide a grading feature that allows users to evaluate the quality of the documentation.
+The quality score will be based on factors such as clarity, completeness, relevance, and newness of the content. The
+grading feature will be provided by the Indexer application, which will analyze the content of the documentation.
+Document scores will be stored in the database and will be accessible via the user interface. Users will be able to view
+the quality score of each document, allowing them to see how well the documentation is written and where it can be
+improved.
+
 ## User Interface
 
 The Documents application will provide a user interface that allows users to browse and search the documentation. The

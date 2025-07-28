@@ -1,7 +1,7 @@
-use std::cmp::PartialEq;
-use std::collections::HashMap;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::cmp::PartialEq;
+use std::collections::HashMap;
 
 #[derive(Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum FragmentType {
@@ -80,7 +80,7 @@ impl Fragment {
     ) -> Self {
         let now = Utc::now();
         let checksum = Self::calculate_checksum(&content);
-        
+
         Self {
             id,
             repository,
@@ -101,69 +101,84 @@ impl Fragment {
             updated_at: now,
         }
     }
-    
+
     pub fn calculate_checksum(content: &str) -> String {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
-        
+
         let mut hasher = DefaultHasher::new();
         content.hash(&mut hasher);
         format!("{:x}", hasher.finish())
     }
-    
+
     pub fn validate(&self) -> Result<(), super::OutputError> {
         if self.id.is_empty() {
-            return Err(super::OutputError::Validation("Fragment ID cannot be empty".to_string()));
+            return Err(super::OutputError::Validation(
+                "Fragment ID cannot be empty".to_string(),
+            ));
         }
-        
+
         if self.repository.is_empty() {
-            return Err(super::OutputError::Validation("Repository cannot be empty".to_string()));
+            return Err(super::OutputError::Validation(
+                "Repository cannot be empty".to_string(),
+            ));
         }
-        
+
         if self.content.is_empty() {
-            return Err(super::OutputError::Validation("Content cannot be empty".to_string()));
+            return Err(super::OutputError::Validation(
+                "Content cannot be empty".to_string(),
+            ));
         }
-        
+
         let calculated_checksum = Self::calculate_checksum(&self.content);
         if calculated_checksum != self.metadata.checksum {
-            return Err(super::OutputError::Validation("Checksum mismatch".to_string()));
+            return Err(super::OutputError::Validation(
+                "Checksum mismatch".to_string(),
+            ));
         }
-        
+
         if self.content.len() != self.metadata.size {
-            return Err(super::OutputError::Validation("Content size does not match metadata size".to_string()));
+            return Err(super::OutputError::Validation(
+                "Content size does not match metadata size".to_string(),
+            ));
         }
-        
+
         Ok(())
     }
-    
+
     pub fn has_changed(&self, other: &Fragment) -> bool {
-        self.metadata.checksum != other.metadata.checksum ||
-            self.content != other.content ||
-            self.metadata.size != other.metadata.size
+        self.metadata.checksum != other.metadata.checksum
+            || self.content != other.content
+            || self.metadata.size != other.metadata.size
     }
-    
+
     pub fn add_dependency(&mut self, dependency_id: String) {
         if !self.dependencies.contains(&dependency_id) {
             self.dependencies.push(dependency_id);
         }
     }
-    
+
     pub fn add_link(&mut self, target: String, link_type: LinkType, title: Option<String>) {
         let link = FragmentLink {
             target,
             link_type,
             title,
         };
-        
-        if !self.metadata.links.iter().any(|l| l.target == link.target && l.link_type == link.link_type) {
+
+        if !self
+            .metadata
+            .links
+            .iter()
+            .any(|l| l.target == link.target && l.link_type == link.link_type)
+        {
             self.metadata.links.push(link);
         }
     }
-    
+
     pub fn set_attribute(&mut self, key: String, value: String) {
         self.metadata.attributes.insert(key, value);
     }
-    
+
     pub fn add_tag(&mut self, tag: String) {
         if !self.metadata.tags.contains(&tag) {
             self.metadata.tags.push(tag);
@@ -176,12 +191,14 @@ impl FragmentCollection {
         let now = Utc::now();
         let total_fragments = fragments.len();
         let total_size = fragments.iter().map(|f| f.metadata.size).sum();
-        
+
         let mut fragment_types = HashMap::new();
         for fragment in &fragments {
-            *fragment_types.entry(fragment.fragment_type.clone()).or_insert(0) += 1;
+            *fragment_types
+                .entry(fragment.fragment_type.clone())
+                .or_insert(0) += 1;
         }
-        
+
         Self {
             repository,
             fragments,
@@ -196,62 +213,87 @@ impl FragmentCollection {
             created_at: now,
         }
     }
-    
+
     pub fn validate(&self) -> Result<(), super::OutputError> {
         for fragment in &self.fragments {
             fragment.validate()?;
         }
-        
+
         if self.fragments.len() != self.metadata.total_fragments {
-            return Err(super::OutputError::Validation("Total fragments count does not match metadata".to_string()));
+            return Err(super::OutputError::Validation(
+                "Total fragments count does not match metadata".to_string(),
+            ));
         }
-        
+
         let calculated_size: usize = self.fragments.iter().map(|f| f.metadata.size).sum();
         if calculated_size != self.metadata.total_size {
-            return Err(super::OutputError::Validation("Total size does not match metadata".to_string()));
+            return Err(super::OutputError::Validation(
+                "Total size does not match metadata".to_string(),
+            ));
         }
-        
+
         Ok(())
     }
-    
+
     pub fn get_fragments_by_type(&self, fragment_type: FragmentType) -> Vec<&Fragment> {
-        self.fragments.iter().filter(|f| f.fragment_type == fragment_type).collect()
+        self.fragments
+            .iter()
+            .filter(|f| f.fragment_type == fragment_type)
+            .collect()
     }
-    
+
     pub fn find_fragment(&self, id: &str) -> Option<&Fragment> {
         self.fragments.iter().find(|f| f.id == id)
     }
-    
-    pub fn update_fragment(&mut self, updated_fragment: Fragment) -> Result<(), super::OutputError> {
+
+    pub fn update_fragment(
+        &mut self,
+        updated_fragment: Fragment,
+    ) -> Result<(), super::OutputError> {
         updated_fragment.validate()?;
-        
-        if let Some(pos) = self.fragments.iter().position(|f| f.id == updated_fragment.id) {
+
+        if let Some(pos) = self
+            .fragments
+            .iter()
+            .position(|f| f.id == updated_fragment.id)
+        {
             let old_size = self.fragments[pos].metadata.size;
             self.fragments[pos] = updated_fragment;
-            
-            self.metadata.total_size = self.metadata.total_size - old_size + self.fragments[pos].metadata.size;
+
+            self.metadata.total_size =
+                self.metadata.total_size - old_size + self.fragments[pos].metadata.size;
             self.metadata.last_processed = Utc::now();
         } else {
-            return Err(super::OutputError::Validation(format!("Fragment with ID {} not found", updated_fragment.id)));
+            return Err(super::OutputError::Validation(format!(
+                "Fragment with ID {} not found",
+                updated_fragment.id
+            )));
         }
-        
+
         Ok(())
     }
-    
+
     pub fn add_fragment(&mut self, fragment: Fragment) -> Result<(), super::OutputError> {
         fragment.validate()?;
-        
+
         if self.find_fragment(&fragment.id).is_some() {
-            return Err(super::OutputError::Validation(format!("Fragment with ID {} already exists", fragment.id)));
+            return Err(super::OutputError::Validation(format!(
+                "Fragment with ID {} already exists",
+                fragment.id
+            )));
         }
-        
+
         self.metadata.total_size += fragment.metadata.size;
         self.metadata.total_fragments += 1;
-        *self.metadata.fragment_types.entry(fragment.fragment_type.clone()).or_insert(0) += 1;
-        
+        *self
+            .metadata
+            .fragment_types
+            .entry(fragment.fragment_type.clone())
+            .or_insert(0) += 1;
+
         self.fragments.push(fragment);
         self.metadata.last_processed = Utc::now();
-        
+
         Ok(())
     }
 }

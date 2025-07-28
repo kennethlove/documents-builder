@@ -1,7 +1,7 @@
-use std::collections::HashSet;
-use regex::Regex;
-use tracing::debug;
 use crate::processing::pipeline::{DiscoveredFile, PipelineError, ProcessingContext};
+use regex::Regex;
+use std::collections::HashSet;
+use tracing::debug;
 
 pub struct FileDiscoverer<'a> {
     context: &'a ProcessingContext,
@@ -9,7 +9,7 @@ pub struct FileDiscoverer<'a> {
 
 #[derive(Debug, Clone)]
 pub enum PatternType {
-    Glob(String), // e.g. "docs/**/*.md"
+    Glob(String),  // e.g. "docs/**/*.md"
     Regex(String), // e.g. "^docs/.*\.md$"
     Exact(String), // e.g. "README.md"
 }
@@ -65,7 +65,11 @@ impl<'a> FileDiscoverer<'a> {
         discovered_files.sort_by(|a, b| a.path.cmp(&b.path));
         discovered_files.dedup_by(|a, b| a.path == b.path);
 
-        debug!("Discovered {} files in repository {}", discovered_files.len(), self.context.repository);
+        debug!(
+            "Discovered {} files in repository {}",
+            discovered_files.len(),
+            self.context.repository
+        );
         Ok(discovered_files)
     }
 
@@ -97,24 +101,31 @@ impl<'a> FileDiscoverer<'a> {
         Ok(pattern_files)
     }
 
-    async fn find_files_by_pattern(&self, pattern: &PatternType) -> Result<Vec<String>, PipelineError> {
+    async fn find_files_by_pattern(
+        &self,
+        pattern: &PatternType,
+    ) -> Result<Vec<String>, PipelineError> {
         match pattern {
             PatternType::Exact(path) => {
-                match self.context.github_client.file_exists(&self.context.repository, path).await {
+                match self
+                    .context
+                    .github_client
+                    .file_exists(&self.context.repository, path)
+                    .await
+                {
                     Ok(true) => Ok(vec![path.clone()]),
                     Ok(false) => Ok(vec![]),
                     Err(e) => {
-                        debug!("Error checking file existence for exact path {}: {}", path, e);
+                        debug!(
+                            "Error checking file existence for exact path {}: {}",
+                            path, e
+                        );
                         Ok(vec![])
                     }
                 }
             }
-            PatternType::Glob(glob_pattern) => {
-                self.find_files_by_glob(glob_pattern).await
-            }
-            PatternType::Regex(regex_pattern) => {
-                self.find_files_by_regex(regex_pattern).await
-            }
+            PatternType::Glob(glob_pattern) => self.find_files_by_glob(glob_pattern).await,
+            PatternType::Regex(regex_pattern) => self.find_files_by_regex(regex_pattern).await,
         }
     }
 
@@ -123,28 +134,44 @@ impl<'a> FileDiscoverer<'a> {
         let mut visited_paths = HashSet::new();
 
         // Parse glob pattern to understand the directory structure
-        let pattern = glob::Pattern::new(glob_pattern)
-            .map_err(|e| PipelineError::InvalidPattern(format!("Invalid glob pattern '{}': {}", glob_pattern, e)))?;
+        let pattern = glob::Pattern::new(glob_pattern).map_err(|e| {
+            PipelineError::InvalidPattern(format!("Invalid glob pattern '{}': {}", glob_pattern, e))
+        })?;
 
         // Start recursive search from root
-        self.search_directory_recursive("", &pattern, &mut matching_files, &mut visited_paths).await?;
+        self.search_directory_recursive("", &pattern, &mut matching_files, &mut visited_paths)
+            .await?;
 
-        debug!("Found {} files matching glob pattern '{}'", matching_files.len(), glob_pattern);
+        debug!(
+            "Found {} files matching glob pattern '{}'",
+            matching_files.len(),
+            glob_pattern
+        );
         Ok(matching_files)
     }
 
     async fn find_files_by_regex(&self, regex_pattern: &str) -> Result<Vec<String>, PipelineError> {
-        let regex = Regex::new(regex_pattern)
-            .map_err(|e| PipelineError::InvalidPattern(format!("Invalid regular expression '{}': {}", regex_pattern, e)))?;
+        let regex = Regex::new(regex_pattern).map_err(|e| {
+            PipelineError::InvalidPattern(format!(
+                "Invalid regular expression '{}': {}",
+                regex_pattern, e
+            ))
+        })?;
 
         let mut matching_files = Vec::new();
         let mut visited_paths = HashSet::new();
 
         // Start recursive search from root
-        let pin = self.search_directory_recursive_regex("", &regex, &mut matching_files, &mut visited_paths).await;
+        let pin = self
+            .search_directory_recursive_regex("", &regex, &mut matching_files, &mut visited_paths)
+            .await;
         pin.await?;
 
-        debug!("Found {} files matching regex pattern '{}'", matching_files.len(), regex_pattern);
+        debug!(
+            "Found {} files matching regex pattern '{}'",
+            matching_files.len(),
+            regex_pattern
+        );
         Ok(matching_files)
     }
 
@@ -161,7 +188,12 @@ impl<'a> FileDiscoverer<'a> {
             }
             visited_paths.insert(current_path.to_string());
 
-            let files = match self.context.github_client.list_repository_files(&self.context.repository, Some(current_path)).await {
+            let files = match self
+                .context
+                .github_client
+                .list_repository_files(&self.context.repository, Some(current_path))
+                .await
+            {
                 Ok(files) => files,
                 Err(e) => {
                     debug!("Error listing files in directory '{}': {}", current_path, e);
@@ -182,7 +214,13 @@ impl<'a> FileDiscoverer<'a> {
                     }
                 } else if file.file_type == "dir" {
                     // Recursively search in subdirectories
-                    self.search_directory_recursive(&file_path, pattern, matching_files, visited_paths).await?;
+                    self.search_directory_recursive(
+                        &file_path,
+                        pattern,
+                        matching_files,
+                        visited_paths,
+                    )
+                    .await?;
                 }
             }
 
@@ -203,7 +241,12 @@ impl<'a> FileDiscoverer<'a> {
             }
             visited_paths.insert(current_path.to_string());
 
-            let files = match self.context.github_client.list_repository_files(&self.context.repository, Some(current_path)).await {
+            let files = match self
+                .context
+                .github_client
+                .list_repository_files(&self.context.repository, Some(current_path))
+                .await
+            {
                 Ok(files) => files,
                 Err(e) => {
                     debug!("Error listing files in directory '{}': {}", current_path, e);
@@ -224,7 +267,14 @@ impl<'a> FileDiscoverer<'a> {
                     }
                 } else if file.file_type == "dir" {
                     // Recursively search in subdirectories
-                    self.search_directory_recursive_regex(&file_path, regex, matching_files, visited_paths).await.await?;
+                    self.search_directory_recursive_regex(
+                        &file_path,
+                        regex,
+                        matching_files,
+                        visited_paths,
+                    )
+                    .await
+                    .await?;
                 }
             }
 
@@ -236,7 +286,7 @@ impl<'a> FileDiscoverer<'a> {
         match pattern {
             PatternType::Glob(p) => p.clone(),
             PatternType::Regex(p) => format!("regex:{}", p),
-            PatternType::Exact(p) => p.clone()
+            PatternType::Exact(p) => p.clone(),
         }
     }
 }
@@ -245,11 +295,11 @@ impl<'a> FileDiscoverer<'a> {
 mod tests {
     use super::*;
     use crate::ProjectDetails;
+    use crate::github::GitHubClient;
     use crate::github::tests::MockGitHubClient;
     use std::collections::HashMap;
     use std::path::PathBuf;
     use std::sync::Arc;
-    use crate::github::GitHubClient;
 
     // Helper function to create a dummy GitHubClient for tests
     fn create_dummy_github_client() -> GitHubClient {
@@ -280,7 +330,7 @@ mod tests {
         let processor = crate::processing::RepositoryProcessor::new(
             create_dummy_github_client(),
             config.clone(),
-            "test-repo".to_string()
+            "test-repo".to_string(),
         );
 
         ProcessingContext {
@@ -315,7 +365,7 @@ mod tests {
         let processor = crate::processing::RepositoryProcessor::new(
             create_dummy_github_client(),
             config.clone(),
-            "test-repo".to_string()
+            "test-repo".to_string(),
         );
 
         ProcessingContext {
@@ -328,12 +378,24 @@ mod tests {
 
     #[test]
     fn test_pattern_type_from_string() {
-        assert!(matches!(PatternType::from_string("README.md"), PatternType::Exact(_)));
+        assert!(matches!(
+            PatternType::from_string("README.md"),
+            PatternType::Exact(_)
+        ));
 
-        assert!(matches!(PatternType::from_string("*.md"), PatternType::Glob(_)));
-        assert!(matches!(PatternType::from_string("docs/**/*.md"), PatternType::Glob(_)));
+        assert!(matches!(
+            PatternType::from_string("*.md"),
+            PatternType::Glob(_)
+        ));
+        assert!(matches!(
+            PatternType::from_string("docs/**/*.md"),
+            PatternType::Glob(_)
+        ));
 
-        assert!(matches!(PatternType::from_string("regex:^[A-Z]+\\.md$"), PatternType::Regex(_)));
+        assert!(matches!(
+            PatternType::from_string("regex:^[A-Z]+\\.md$"),
+            PatternType::Regex(_)
+        ));
     }
 
     #[tokio::test]
@@ -406,8 +468,16 @@ mod tests {
         let result = discoverer.discover().await.unwrap();
 
         assert_eq!(result.len(), 2, "Expected two discovered files");
-        assert!(result.iter().any(|f| f.path == "docs/sub1.md" && f.pattern_source == "parent:Sub Doc 1"));
-        assert!(result.iter().any(|f| f.path == "docs/sub2.md" && f.pattern_source == "parent:Sub Doc 2"));
+        assert!(
+            result
+                .iter()
+                .any(|f| f.path == "docs/sub1.md" && f.pattern_source == "parent:Sub Doc 1")
+        );
+        assert!(
+            result
+                .iter()
+                .any(|f| f.path == "docs/sub2.md" && f.pattern_source == "parent:Sub Doc 2")
+        );
     }
 
     #[tokio::test]
@@ -419,7 +489,10 @@ mod tests {
         let result = discoverer.find_files_by_pattern(&pattern).await.unwrap();
 
         assert_eq!(result.len(), 1, "Expected one discovered file");
-        assert_eq!(result[0], "README.md", "Expected file path to match README.md");
+        assert_eq!(
+            result[0], "README.md",
+            "Expected file path to match README.md"
+        );
     }
 
     #[tokio::test]
@@ -430,8 +503,14 @@ mod tests {
         let pattern = PatternType::Glob("*.md".to_string());
         let result = discoverer.find_files_by_pattern(&pattern).await.unwrap();
 
-        assert!(result.contains(&"README.md".to_string()), "Expected to find README.md");
-        assert!(result.contains(&"CHANGELOG.md".to_string()), "Expected to find CHANGELOG.md");
+        assert!(
+            result.contains(&"README.md".to_string()),
+            "Expected to find README.md"
+        );
+        assert!(
+            result.contains(&"CHANGELOG.md".to_string()),
+            "Expected to find CHANGELOG.md"
+        );
     }
 
     #[tokio::test]
@@ -442,7 +521,13 @@ mod tests {
         let pattern = PatternType::Regex("^[A-Z]+\\.md$".to_string());
         let result = discoverer.find_files_by_pattern(&pattern).await.unwrap();
 
-        assert!(result.contains(&"README.md".to_string()), "Expected to find README.md");
-        assert!(result.contains(&"CHANGELOG.md".to_string()), "Expected to find CHANGELOG.md");
+        assert!(
+            result.contains(&"README.md".to_string()),
+            "Expected to find README.md"
+        );
+        assert!(
+            result.contains(&"CHANGELOG.md".to_string()),
+            "Expected to find CHANGELOG.md"
+        );
     }
 }

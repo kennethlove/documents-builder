@@ -1,9 +1,8 @@
-use futures_lite::stream::StreamExt;
-use std::path::{Path, PathBuf};
-use async_trait::async_trait;
 use crate::output::fragment::{Fragment, FragmentCollection};
 use crate::output::{OutputConfig, OutputError, OutputFormat, Result};
-
+use async_trait::async_trait;
+use futures_lite::stream::StreamExt;
+use std::path::{Path, PathBuf};
 
 #[async_trait]
 pub trait Storage: Send + Sync {
@@ -21,7 +20,7 @@ pub trait Storage: Send + Sync {
 #[derive(Debug)]
 pub struct FileSystemStorage {
     base_path: PathBuf,
-    config: OutputConfig
+    config: OutputConfig,
 }
 
 impl FileSystemStorage {
@@ -31,10 +30,7 @@ impl FileSystemStorage {
             std::fs::create_dir_all(&base_path)?;
         }
 
-        Ok(Self {
-            base_path,
-            config,
-        })
+        Ok(Self { base_path, config })
     }
 
     fn get_repository_path(&self, repository: &str) -> PathBuf {
@@ -74,7 +70,10 @@ impl FileSystemStorage {
         Ok(())
     }
 
-    async fn load_from_json<T: serde::de::DeserializeOwned>(&self, path: &Path) -> Result<Option<T>> {
+    async fn load_from_json<T: serde::de::DeserializeOwned>(
+        &self,
+        path: &Path,
+    ) -> Result<Option<T>> {
         if !path.exists() {
             return Ok(None);
         }
@@ -127,7 +126,7 @@ impl Storage for FileSystemStorage {
                 for fragment in &collection.fragments {
                     self.save_fragment(fragment).await?;
                 }
-                
+
                 let index_html = self.generate_collection_index_html(&collection);
                 let index_path = self.get_collection_path(&collection.repository, "html");
                 self.save_as_html(&index_path, &index_html).await?;
@@ -156,11 +155,11 @@ impl Storage for FileSystemStorage {
 
     async fn list_repositories(&self) -> Result<Vec<String>> {
         let mut repositories = Vec::new();
-        
+
         if !self.base_path.exists() {
             return Ok(repositories);
         }
-        
+
         let mut entries = async_fs::read_dir(&self.base_path).await?;
         while let Some(entry) = entries.try_next().await? {
             if entry.file_type().await?.is_dir() {
@@ -228,7 +227,8 @@ impl FileSystemStorage {
     fn generate_collection_index_html(&self, collection: &FragmentCollection) -> String {
         let mut html = String::new();
 
-        html.push_str(&format!(r#"<!DOCTYPE html>
+        html.push_str(&format!(
+            r#"<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -250,8 +250,8 @@ impl FileSystemStorage {
     </section>
     <section class="fragments">
 "#,
-        html_escape::encode_text(&collection.repository),
-        html_escape::encode_text(&collection.repository),
+            html_escape::encode_text(&collection.repository),
+            html_escape::encode_text(&collection.repository),
             collection.created_at.format("%Y-%m-%d %H:%M:%S UTC"),
             html_escape::encode_text(&collection.version),
             collection.metadata.total_fragments,
@@ -259,7 +259,8 @@ impl FileSystemStorage {
         ));
 
         for fragment in &collection.fragments {
-            html.push_str(&format!(r#"
+            html.push_str(&format!(
+                r#"
             <article>
                 <h2>{}</h2>
                 <p>{:?}</p>
@@ -284,11 +285,13 @@ impl FileSystemStorage {
             ));
         }
 
-        html.push_str(r#"
+        html.push_str(
+            r#"
         </section>
     </body>
 </html>
-"#);
+"#,
+        );
 
         html
     }
@@ -302,17 +305,20 @@ impl StorageManager {
     pub fn new(config: OutputConfig) -> Result<Self> {
         let storage: Box<dyn Storage> = match config.storage_type {
             crate::output::StorageType::FileSystem => {
-                let base_path = config.base_path.clone().unwrap_or_else(|| PathBuf::from("./output"));
+                let base_path = config
+                    .base_path
+                    .clone()
+                    .unwrap_or_else(|| PathBuf::from("./output"));
                 Box::new(FileSystemStorage::new(base_path, config)?)
-            },
+            }
             crate::output::StorageType::Database => {
                 // Placeholder for database storage implementation
                 unimplemented!("Database storage is not yet implemented");
-            },
+            }
             crate::output::StorageType::Hybrid => {
                 // Placeholder for hybrid storage implementation
                 unimplemented!("Hybrid storage is not yet implemented");
-            },
+            }
         };
         Ok(Self { storage })
     }
@@ -354,8 +360,12 @@ impl StorageManager {
     }
 
     pub async fn export_collection(&self, repository: &str, export_path: &Path) -> Result<()> {
-        let collection = self.load_collection(repository).await?
-            .ok_or_else(|| OutputError::Storage(format!("Collection not found for repository: {}", repository)))?;
+        let collection = self.load_collection(repository).await?.ok_or_else(|| {
+            OutputError::Storage(format!(
+                "Collection not found for repository: {}",
+                repository
+            ))
+        })?;
 
         let export_data = serde_json::to_string_pretty(&collection)?;
         async_fs::write(export_path, &export_data).await?;
@@ -376,9 +386,9 @@ impl StorageManager {
 
 #[cfg(test)]
 mod tests {
-    use crate::output::{OutputConfig, OutputFormat};
     use crate::output::fragment::{Fragment, FragmentCollection, FragmentType};
     use crate::output::storage::{FileSystemStorage, Storage, StorageManager};
+    use crate::output::{OutputConfig, OutputFormat};
 
     fn create_test_config(temp_dir: &tempfile::TempDir) -> OutputConfig {
         OutputConfig {
@@ -407,13 +417,26 @@ mod tests {
 
         // Test save and load
         storage.save_fragment(&fragment).await.unwrap();
-        let loaded = storage.load_fragment("test/repo", "test-fragment").await.unwrap();
+        let loaded = storage
+            .load_fragment("test/repo", "test-fragment")
+            .await
+            .unwrap();
         assert!(loaded.is_some());
         assert_eq!(loaded.unwrap().id, "test-fragment");
 
         // Test fragment exists
-        assert!(storage.fragment_exists("test/repo", "test-fragment").await.unwrap());
-        assert!(!storage.fragment_exists("test/repo", "nonexistent").await.unwrap());
+        assert!(
+            storage
+                .fragment_exists("test/repo", "test-fragment")
+                .await
+                .unwrap()
+        );
+        assert!(
+            !storage
+                .fragment_exists("test/repo", "nonexistent")
+                .await
+                .unwrap()
+        );
 
         // Test list fragments
         let fragments = storage.list_fragments("test/repo").await.unwrap();
@@ -446,10 +469,7 @@ mod tests {
             ),
         ];
 
-        let collection = FragmentCollection::new(
-            "test/repo".to_string(),
-            fragments,
-        );
+        let collection = FragmentCollection::new("test/repo".to_string(), fragments);
 
         // Test save and load collection
         manager.save_collection(&collection).await.unwrap();
@@ -464,12 +484,21 @@ mod tests {
 
         // Test export
         let export_path = temp_dir.path().join("exported_collection.json");
-        manager.export_collection("test/repo", &export_path).await.unwrap();
+        manager
+            .export_collection("test/repo", &export_path)
+            .await
+            .unwrap();
         assert!(export_path.exists());
 
         // Delete and re-import
         manager.delete_collection("test/repo").await.unwrap();
-        assert!(manager.load_collection("test/repo").await.unwrap().is_none());
+        assert!(
+            manager
+                .load_collection("test/repo")
+                .await
+                .unwrap()
+                .is_none()
+        );
 
         manager.import_collection(&export_path).await.unwrap();
         let reimported = manager.load_collection("test/repo").await.unwrap();

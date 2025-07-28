@@ -2,15 +2,15 @@
 //
 // These tests use mockito to mock the GitHub client's behavior.
 
-use documents::processing::{DocumentProcessingPipeline, ProcessingContext};
+use async_trait::async_trait;
 use documents::github::{Client, GitHubClient, GitHubError, RepositoryFile};
-use documents::{ProjectConfig, ProjectDetails, DocumentConfig};
 use documents::processing::RepositoryProcessor;
+use documents::processing::{DocumentProcessingPipeline, ProcessingContext};
+use documents::{DocumentConfig, ProjectConfig, ProjectDetails};
+use octocrab::Octocrab;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-use async_trait::async_trait;
-use octocrab::Octocrab;
 
 // Mock implementation of the Client trait for testing
 struct MockGitHubClient {
@@ -27,7 +27,8 @@ impl MockGitHubClient {
     }
 
     fn add_file(&mut self, path: &str, content: &str) {
-        self.file_contents.insert(path.to_string(), content.to_string());
+        self.file_contents
+            .insert(path.to_string(), content.to_string());
         self.files.push(RepositoryFile {
             path: path.to_string(),
             name: path.split('/').last().unwrap_or(path).to_string(),
@@ -97,10 +98,17 @@ impl Client for MockGitHubClient {
         })
     }
 
-    async fn get_file_content(&self, _repo_name: &str, file_path: &str) -> Result<String, GitHubError> {
+    async fn get_file_content(
+        &self,
+        _repo_name: &str,
+        file_path: &str,
+    ) -> Result<String, GitHubError> {
         match self.file_contents.get(file_path) {
             Some(content) => Ok(content.clone()),
-            None => Err(GitHubError::FileNotFound(format!("File not found: {}", file_path)))
+            None => Err(GitHubError::FileNotFound(format!(
+                "File not found: {}",
+                file_path
+            ))),
         }
     }
 
@@ -108,7 +116,11 @@ impl Client for MockGitHubClient {
         Ok(self.file_contents.contains_key(file_path))
     }
 
-    async fn list_repository_files(&self, repo_name: &str, path: Option<&str>) -> Result<Vec<RepositoryFile>, GitHubError> {
+    async fn list_repository_files(
+        &self,
+        repo_name: &str,
+        path: Option<&str>,
+    ) -> Result<Vec<RepositoryFile>, GitHubError> {
         let search_path = path.unwrap_or("");
         let mut result = Vec::new();
 
@@ -140,16 +152,27 @@ async fn test_pipeline_execute() {
     let result = pipeline.execute().await;
 
     // Check that the pipeline executed successfully
-    assert!(result.is_ok(), "Pipeline execution failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Pipeline execution failed: {:?}",
+        result.err()
+    );
 
     // Get the processed documents
     let processed_documents = result.unwrap();
 
     // Check that we have the expected number of documents
-    assert_eq!(processed_documents.len(), 2, "Expected 2 processed documents, got {}", processed_documents.len());
+    assert_eq!(
+        processed_documents.len(),
+        2,
+        "Expected 2 processed documents, got {}",
+        processed_documents.len()
+    );
 
     // Check the first document
-    let doc1 = processed_documents.iter().find(|d| d.file_path == "docs/file1.md")
+    let doc1 = processed_documents
+        .iter()
+        .find(|d| d.file_path == "docs/file1.md")
         .expect("Document 1 not found in processed documents");
 
     assert_eq!(doc1.title, "Test Document");
@@ -160,7 +183,9 @@ async fn test_pipeline_execute() {
     assert_eq!(doc1.links[0].url, "https://example.com");
 
     // Check the second document
-    let doc2 = processed_documents.iter().find(|d| d.file_path == "docs/file2.md")
+    let doc2 = processed_documents
+        .iter()
+        .find(|d| d.file_path == "docs/file2.md")
         .expect("Document 2 not found in processed documents");
 
     assert_eq!(doc2.title, "Another Document");
@@ -189,13 +214,22 @@ async fn test_pipeline_with_missing_file() {
     let result = pipeline.execute().await;
 
     // The pipeline should still succeed, but with fewer documents
-    assert!(result.is_ok(), "Pipeline execution failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Pipeline execution failed: {:?}",
+        result.err()
+    );
 
     // Get the processed documents
     let processed_documents = result.unwrap();
 
     // Check that we have the expected number of documents (only the existing ones)
-    assert_eq!(processed_documents.len(), 2, "Expected 2 processed documents, got {}", processed_documents.len());
+    assert_eq!(
+        processed_documents.len(),
+        2,
+        "Expected 2 processed documents, got {}",
+        processed_documents.len()
+    );
 }
 
 #[tokio::test]
@@ -210,13 +244,22 @@ async fn test_pipeline_with_invalid_content() {
     let result = pipeline.execute().await;
 
     // The pipeline should still succeed, but the document might have default values
-    assert!(result.is_ok(), "Pipeline execution failed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Pipeline execution failed: {:?}",
+        result.err()
+    );
 
     // Get the processed documents
     let processed_documents = result.unwrap();
 
     // Check that we have one document
-    assert_eq!(processed_documents.len(), 1, "Expected 1 processed document, got {}", processed_documents.len());
+    assert_eq!(
+        processed_documents.len(),
+        1,
+        "Expected 1 processed document, got {}",
+        processed_documents.len()
+    );
 
     // Check the document
     let doc = &processed_documents[0];
@@ -254,7 +297,7 @@ fn create_test_context() -> ProcessingContext {
     let mut mock_client = MockGitHubClient::new();
 
     mock_client.add_directory("docs");
-    
+
     // Add test files
     mock_client.add_file(
         "docs/file1.md",
@@ -315,7 +358,7 @@ fn create_test_context_with_invalid_file() -> ProcessingContext {
 
     // Create a mock GitHub client with an invalid file
     let mut mock_client = MockGitHubClient::new();
-    
+
     mock_client.add_directory("docs");
 
     // Add an invalid file

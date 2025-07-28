@@ -1,12 +1,12 @@
-use std::collections::HashMap;
-use std::sync::Arc;
-use serde::{Deserialize, Serialize};
-use tracing::info;
 use crate::github::Client;
+use crate::processing::RepositoryProcessor;
 use crate::processing::discovery::FileDiscoverer;
 use crate::processing::processor::ContentProcessor;
-use crate::processing::RepositoryProcessor;
 use crate::processing::validation::ContentValidator;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::sync::Arc;
+use tracing::info;
 
 #[derive(Debug, thiserror::Error)]
 pub enum PipelineError {
@@ -40,7 +40,10 @@ impl DocumentProcessingPipeline {
     }
 
     pub async fn execute(&self) -> Result<Vec<ProcessedDocument>, PipelineError> {
-        info!("Starting document processing pipeline for repository: {}", self.context.repository);
+        info!(
+            "Starting document processing pipeline for repository: {}",
+            self.context.repository
+        );
 
         // Step 1, discover files
         let discovered_files = self.discover_files().await?;
@@ -51,7 +54,10 @@ impl DocumentProcessingPipeline {
         // Step 3, process files
         let processed_documents = self.process_files(validated_files).await?;
 
-        info!("Pipeline completed: {} documents processed", processed_documents.len());
+        info!(
+            "Pipeline completed: {} documents processed",
+            processed_documents.len()
+        );
         Ok(processed_documents)
     }
 
@@ -60,12 +66,18 @@ impl DocumentProcessingPipeline {
         discoverer.discover().await
     }
 
-    async fn validate_files(&self, files: Vec<DiscoveredFile>) -> Result<Vec<ValidatedFile>, PipelineError> {
+    async fn validate_files(
+        &self,
+        files: Vec<DiscoveredFile>,
+    ) -> Result<Vec<ValidatedFile>, PipelineError> {
         let validator = ContentValidator::new(&self.context);
         validator.validate_batch(files).await
     }
 
-    async fn process_files(&self, files: Vec<ValidatedFile>) -> Result<Vec<ProcessedDocument>, PipelineError> {
+    async fn process_files(
+        &self,
+        files: Vec<ValidatedFile>,
+    ) -> Result<Vec<ProcessedDocument>, PipelineError> {
         let processor = ContentProcessor::new();
         processor.process_batch(files).await
     }
@@ -142,11 +154,11 @@ pub struct ProcessingMetadata {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::github::tests::MockGitHubClient;
+    use crate::github::{Client, GitHubClient};
+    use mockito;
     use std::collections::HashMap;
     use std::sync::Arc;
-    use mockito;
-    use crate::github::{Client, GitHubClient};
-    use crate::github::tests::MockGitHubClient;
 
     fn create_test_context() -> ProcessingContext {
         // Create a mock GitHub client
@@ -199,7 +211,10 @@ mod tests {
         let pipeline = DocumentProcessingPipeline::new(context.clone());
 
         assert_eq!(pipeline.context.repository, context.repository);
-        assert_eq!(pipeline.context.config.project.name, context.config.project.name);
+        assert_eq!(
+            pipeline.context.config.project.name,
+            context.config.project.name
+        );
     }
 
     #[tokio::test]
@@ -223,7 +238,11 @@ mod tests {
     }
 
     // Helper function to create a mock for the GitHub client that returns a specific file content
-    fn mock_github_file_content(mock_server: &mut mockito::Server, file_path: &str, _content: &str) -> String {
+    fn mock_github_file_content(
+        mock_server: &mut mockito::Server,
+        file_path: &str,
+        _content: &str,
+    ) -> String {
         let url = mock_server.url();
         let mock_path = format!("/repos/test-org/test-repo/contents/{}", file_path);
 
@@ -231,18 +250,20 @@ mod tests {
         // For simplicity, we'll just use a placeholder
         let encoded_content = "bW9ja19jb250ZW50"; // "mock_content" in base64
 
-        let response_body = format!(r#"{{
+        let response_body = format!(
+            r#"{{
             "name": "{}",
             "path": "{}",
             "content": "{}",
             "encoding": "base64"
-        }}"#, 
+        }}"#,
             file_path.split('/').last().unwrap_or(file_path),
             file_path,
             encoded_content
         );
 
-        let _m = mock_server.mock("GET", mock_path.as_str())
+        let _m = mock_server
+            .mock("GET", mock_path.as_str())
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body(response_body)
@@ -257,7 +278,8 @@ mod tests {
         let mut mock_server = mockito::Server::new_async().await;
 
         // Mock the GitHub API to return a specific file content
-        let file_content = "---\ntitle: Test Document\n---\n# Test Document\n\nThis is a test document.";
+        let file_content =
+            "---\ntitle: Test Document\n---\n# Test Document\n\nThis is a test document.";
         mock_github_file_content(&mut mock_server, "docs/doc1.md", file_content);
 
         // Create a context with the mock server
@@ -267,13 +289,11 @@ mod tests {
         let pipeline = DocumentProcessingPipeline::new(context);
 
         // Create test discovered files
-        let discovered_files = vec![
-            DiscoveredFile {
-                path: "docs/doc1.md".to_string(),
-                pattern_source: "*.md".to_string(),
-                estimated_size: Some(100),
-            },
-        ];
+        let discovered_files = vec![DiscoveredFile {
+            path: "docs/doc1.md".to_string(),
+            pattern_source: "*.md".to_string(),
+            estimated_size: Some(100),
+        }];
 
         // This test will still fail without proper mocking of the GitHub client
         // In a real test, we would need to mock the GitHub client more comprehensively
@@ -289,7 +309,7 @@ mod tests {
                     assert_eq!(validated_file.discovered.path, "docs/doc1.md");
                 }
                 // Otherwise, it's fine if the list is empty in this test environment
-            },
+            }
             Err(e) => {
                 // It's also acceptable to get an error in this test environment
                 println!("Got expected error: {:?}", e);
@@ -306,19 +326,18 @@ mod tests {
         let mut frontmatter = HashMap::new();
         frontmatter.insert("title".to_string(), "Test Document".to_string());
 
-        let validated_files = vec![
-            ValidatedFile {
-                discovered: DiscoveredFile {
-                    path: "docs/doc1.md".to_string(),
-                    pattern_source: "*.md".to_string(),
-                    estimated_size: Some(100),
-                },
-                content: "---\ntitle: Test Document\n---\n# Test Document\n\nThis is a test document.".to_string(),
-                frontmatter,
-                markdown_content: "# Test Document\n\nThis is a test document.".to_string(),
-                validation_warnings: vec![],
+        let validated_files = vec![ValidatedFile {
+            discovered: DiscoveredFile {
+                path: "docs/doc1.md".to_string(),
+                pattern_source: "*.md".to_string(),
+                estimated_size: Some(100),
             },
-        ];
+            content: "---\ntitle: Test Document\n---\n# Test Document\n\nThis is a test document."
+                .to_string(),
+            frontmatter,
+            markdown_content: "# Test Document\n\nThis is a test document.".to_string(),
+            validation_warnings: vec![],
+        }];
 
         // Process the files
         let result = pipeline.process_files(validated_files).await;
@@ -352,7 +371,10 @@ mod tests {
         assert!(doc.processing_metadata.processed_at <= chrono::Utc::now());
         // No need to check processing_time_ms as it's an unsigned type
         assert!(doc.processing_metadata.warnings.is_empty());
-        assert!(doc.processing_metadata.quality_score >= 0.0 && doc.processing_metadata.quality_score <= 1.0);
+        assert!(
+            doc.processing_metadata.quality_score >= 0.0
+                && doc.processing_metadata.quality_score <= 1.0
+        );
     }
 
     #[tokio::test]
@@ -372,7 +394,7 @@ mod tests {
                 // If we got documents, that's great
                 println!("Got {} processed documents", processed_documents.len());
                 // It's fine if the list is empty in this test environment
-            },
+            }
             Err(e) => {
                 // It's also acceptable to get an error in this test environment
                 println!("Got expected error: {:?}", e);
@@ -414,12 +436,13 @@ mod tests {
         // Test that errors can be converted to PipelineError
 
         // Test GitHub error conversion
-        let github_error = crate::github::GitHubError::AuthenticationError("test error".to_string());
+        let github_error =
+            crate::github::GitHubError::AuthenticationError("test error".to_string());
         let pipeline_error: PipelineError = github_error.into();
         match pipeline_error {
             PipelineError::GitHub(_) => {
                 // This is the expected error type
-            },
+            }
             _ => {
                 panic!("Expected GitHub error, got: {:?}", pipeline_error);
             }
@@ -431,7 +454,7 @@ mod tests {
         match pipeline_error {
             PipelineError::Io(_) => {
                 // This is the expected error type
-            },
+            }
             _ => {
                 panic!("Expected IO error, got: {:?}", pipeline_error);
             }
@@ -442,7 +465,7 @@ mod tests {
         match validation_error {
             PipelineError::Validation(msg) => {
                 assert_eq!(msg, "test validation error");
-            },
+            }
             _ => {
                 panic!("Expected Validation error, got: {:?}", validation_error);
             }
@@ -453,7 +476,7 @@ mod tests {
         match processing_error {
             PipelineError::Processing(msg) => {
                 assert_eq!(msg, "test processing error");
-            },
+            }
             _ => {
                 panic!("Expected Processing error, got: {:?}", processing_error);
             }

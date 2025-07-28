@@ -1,10 +1,10 @@
-use std::path::PathBuf;
-use clap::Args;
-use tracing::{debug, error, info};
-use crate::github::{Client, GitHubClient, GitHubError};
 use crate::OutputFormat;
+use crate::github::{Client, GitHubClient, GitHubError};
 use crate::processing::{DocumentFragment, RepositoryProcessor};
 use crate::web::AppError;
+use clap::Args;
+use std::path::PathBuf;
+use tracing::{debug, error, info};
 
 #[derive(Args, Debug)]
 pub struct ExportFragmentsArgs {
@@ -18,7 +18,11 @@ pub struct ExportFragmentsArgs {
     include_metadata: bool,
     #[arg(long, help = "Compress exported fragments into archive")]
     compress: bool,
-    #[arg(long, help = "Filter fragments by type (e.g., 'text', 'code')", value_delimiter = ',')]
+    #[arg(
+        long,
+        help = "Filter fragments by type (e.g., 'text', 'code')",
+        value_delimiter = ','
+    )]
     fragment_type: Option<String>,
 }
 
@@ -46,9 +50,10 @@ impl ExportFragmentsCommand {
     pub async fn execute(&self, client: &GitHubClient) -> Result<(), AppError> {
         info!("Exporting fragments for repository: {}", self.repository);
 
-        let output_dir = self.output.clone().unwrap_or_else(|| {
-            PathBuf::from("output/fragments").join(&self.repository)
-        });
+        let output_dir = self
+            .output
+            .clone()
+            .unwrap_or_else(|| PathBuf::from("output/fragments").join(&self.repository));
 
         debug!("Export directory: {}", output_dir.display());
         debug!("Export format: {:?}", self.format);
@@ -58,9 +63,13 @@ impl ExportFragmentsCommand {
         // Get repository configuration
         match client.get_project_config(self.repository.as_str()).await {
             Ok(config) => {
-                info!("Configuration retrieved for repository: {}", self.repository);
+                info!(
+                    "Configuration retrieved for repository: {}",
+                    self.repository
+                );
 
-                let processor = RepositoryProcessor::new(client.clone(), config, self.repository.clone());
+                let processor =
+                    RepositoryProcessor::new(client.clone(), config, self.repository.clone());
 
                 match processor.process(true).await {
                     Ok(result) => {
@@ -68,8 +77,14 @@ impl ExportFragmentsCommand {
 
                         // Filter fragments by type if specified
                         let fragments = if let Some(filter_type) = &self.fragment_type {
-                            result.fragments.into_iter()
-                                .filter(|f| format!("{:?}", f.fragment_type).to_lowercase().contains(&filter_type.to_lowercase()))
+                            result
+                                .fragments
+                                .into_iter()
+                                .filter(|f| {
+                                    format!("{:?}", f.fragment_type)
+                                        .to_lowercase()
+                                        .contains(&filter_type.to_lowercase())
+                                })
                                 .collect()
                         } else {
                             result.fragments
@@ -81,7 +96,11 @@ impl ExportFragmentsCommand {
                             OutputFormat::Files => {
                                 // Export each fragment to a file
                                 for fragment in &fragments {
-                                    let filename = format!("{}-{:?}.md", fragment.file_path.replace("/", "_"), fragment.fragment_type);
+                                    let filename = format!(
+                                        "{}-{:?}.md",
+                                        fragment.file_path.replace("/", "_"),
+                                        fragment.fragment_type
+                                    );
                                     let fragment_file = output_dir.join(filename);
 
                                     std::fs::write(fragment_file, &fragment.content)?;
@@ -100,13 +119,19 @@ impl ExportFragmentsCommand {
                                             .into_iter()
                                             .collect::<Vec<_>>(),
                                     });
-                                    std::fs::write(metadata_file, serde_json::to_string_pretty(&metadata)?)?;
+                                    std::fs::write(
+                                        metadata_file,
+                                        serde_json::to_string_pretty(&metadata)?,
+                                    )?;
                                 }
 
                                 info!("Fragments exported to {}", output_dir.display());
                             }
                             OutputFormat::Html => {
-                                let html_document = self.generate_complete_html_document(&fragments, &result.repository)?;
+                                let html_document = self.generate_complete_html_document(
+                                    &fragments,
+                                    &result.repository,
+                                )?;
                                 let output_file = output_dir.join("fragments.html");
                                 std::fs::write(&output_file, html_document)?;
                                 info!("HTML document exported to {}", output_file.display());
@@ -135,7 +160,10 @@ impl ExportFragmentsCommand {
                                 });
 
                                 let output_file = output_dir.join("fragments.json");
-                                std::fs::write(&output_file, serde_json::to_string_pretty(&export_data)?)?;
+                                std::fs::write(
+                                    &output_file,
+                                    serde_json::to_string_pretty(&export_data)?,
+                                )?;
                                 info!("JSON document exported to {}", &output_file.display());
                             }
                         }
@@ -145,7 +173,10 @@ impl ExportFragmentsCommand {
                             self.compress_output(&output_dir)?;
                         }
 
-                        info!("Export completed successfully for repository: {}", self.repository);
+                        info!(
+                            "Export completed successfully for repository: {}",
+                            self.repository
+                        );
                         Ok(())
                     }
                     Err(e) => {
@@ -156,13 +187,25 @@ impl ExportFragmentsCommand {
                 }
             }
             Err(GitHubError::ConfigFileNotFound(_)) => {
-                error!("No configuration file found in repository: {}", self.repository);
-                eprintln!("No configuration file found in repository: {}", self.repository);
+                error!(
+                    "No configuration file found in repository: {}",
+                    self.repository
+                );
+                eprintln!(
+                    "No configuration file found in repository: {}",
+                    self.repository
+                );
                 std::process::exit(1);
             }
             Err(e) => {
-                error!("Error retrieving configuration for repository {}: {}", self.repository, e);
-                eprintln!("Error retrieving configuration for repository {}: {}", self.repository, e);
+                error!(
+                    "Error retrieving configuration for repository {}: {}",
+                    self.repository, e
+                );
+                eprintln!(
+                    "Error retrieving configuration for repository {}: {}",
+                    self.repository, e
+                );
                 std::process::exit(1);
             }
         }
@@ -187,8 +230,13 @@ impl ExportFragmentsCommand {
         Ok(html)
     }
 
-    fn generate_complete_html_document(&self, fragments: &[DocumentFragment], repository: &str) -> Result<String, AppError> {
-        let fragments_html = fragments.iter()
+    fn generate_complete_html_document(
+        &self,
+        fragments: &[DocumentFragment],
+        repository: &str,
+    ) -> Result<String, AppError> {
+        let fragments_html = fragments
+            .iter()
             .map(|f| self.generate_html_fragment(f.clone()))
             .collect::<Result<Vec<_>, _>>()?
             .join("\n");
