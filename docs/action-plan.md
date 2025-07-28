@@ -71,20 +71,7 @@ processing, and basic documentation serving with search capabilities.
 **Priority: Critical**
 
 - [ ] Implement GitHub API client with rate limiting
-- [ ] Create organization repository enumeration:
-
-```rust
-pub async fn scan_organization(
-    github_token: &str,
-    org_name: &str,
-) -> Result<Vec<Repository>, ScanError> {
-    // Discover all repositories in organization
-    // Filter out archived repositories
-    // Check for documents.toml in each repository
-    // Return list of repositories with documentation
-}
-```
-
+- [ ] Create organization repository enumeration
 - [ ] Add repository filtering (public/private, archived, fork status)
 - [ ] Implement `documents.toml` detection across all repositories
 - [ ] Add repository metadata extraction (description, topics, language)
