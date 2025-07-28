@@ -83,19 +83,19 @@ impl ValidateConfigCommand {
         }
 
         let result = validator.validate(&config).await;
+        
+        if !result.warnings.is_empty() {
+            tracing::warn!("Configuration file has warnings:");
+            println!("Configuration file has warnings:");
+            for warning in &result.warnings {
+                tracing::warn!(" - {}", warning);
+                println!(" - {}", warning);
+            }
+        }
 
         if result.is_valid {
             tracing::info!("Configuration for {} is valid.", self.repository);
-
-            if !result.warnings.is_empty() {
-                tracing::warn!("Configuration file has warnings:");
-                println!("Configuration file has warnings:");
-                for warning in &result.warnings {
-                    tracing::warn!(" - {}", warning);
-                    println!(" - {}", warning);
-                }
-            }
-
+            
             println!("Configuration for {} is valid.", self.repository);
             println!("Summary:");
             println!(" - Project: {}", config.project.name);
@@ -123,15 +123,6 @@ impl ValidateConfigCommand {
                 tracing::error!("Configuration file has errors:");
                 for error in result.errors {
                     tracing::error!(" - {}", error);
-                }
-            }
-
-            if !result.warnings.is_empty() {
-                tracing::warn!("Configuration file has warnings:");
-                println!("Configuration file has warnings:");
-                for warning in &result.warnings {
-                    tracing::warn!(" - {}", warning);
-                    println!(" - {}", warning);
                 }
             }
 
