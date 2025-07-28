@@ -1,5 +1,8 @@
+use crate::processing::pipeline::{
+    CodeBlock, Heading, Image, Link, PipelineError, ProcessedDocument, ProcessingMetadata,
+    ValidatedFile,
+};
 use tracing::{debug, warn};
-use crate::processing::pipeline::{CodeBlock, Heading, Image, Link, PipelineError, ProcessedDocument, ProcessingMetadata, ValidatedFile};
 
 pub struct ContentProcessor {}
 
@@ -8,7 +11,10 @@ impl ContentProcessor {
         Self {}
     }
 
-    pub async fn process_batch(&self, files: Vec<ValidatedFile>) -> Result<Vec<ProcessedDocument>, PipelineError> {
+    pub async fn process_batch(
+        &self,
+        files: Vec<ValidatedFile>,
+    ) -> Result<Vec<ProcessedDocument>, PipelineError> {
         let mut processed_documents = Vec::new();
 
         for file in files {
@@ -23,7 +29,11 @@ impl ContentProcessor {
         Ok(processed_documents)
     }
 
-    async fn process_file(&self, file: ValidatedFile, start_time: std::time::Instant) -> Result<ProcessedDocument, PipelineError> {
+    async fn process_file(
+        &self,
+        file: ValidatedFile,
+        start_time: std::time::Instant,
+    ) -> Result<ProcessedDocument, PipelineError> {
         debug!("Processing file: {}", file.discovered.path);
 
         // Extract document structure
@@ -58,7 +68,11 @@ impl ContentProcessor {
         })
     }
 
-    fn extract_title(&self, frontmatter: &std::collections::HashMap<String, String>, headings: &[Heading]) -> String {
+    fn extract_title(
+        &self,
+        frontmatter: &std::collections::HashMap<String, String>,
+        headings: &[Heading],
+    ) -> String {
         // Try frontmatter first
         if let Some(title) = frontmatter.get("title") {
             return title.clone();
@@ -217,7 +231,12 @@ impl ContentProcessor {
         text.split_whitespace().count()
     }
 
-    fn calculate_quality_score(&self, file: &ValidatedFile, headings: &[Heading], links: &[Link]) -> f32 {
+    fn calculate_quality_score(
+        &self,
+        file: &ValidatedFile,
+        headings: &[Heading],
+        links: &[Link],
+    ) -> f32 {
         let mut score = 1.0;
 
         // Penalize for warnings
@@ -242,8 +261,8 @@ impl ContentProcessor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
     use crate::processing::pipeline::DiscoveredFile;
+    use std::collections::HashMap;
     use tokio::test as async_test;
 
     #[test]
@@ -302,7 +321,10 @@ mod tests {
         assert_eq!(processor.create_anchor("Hello World"), "hello-world");
         assert_eq!(processor.create_anchor("Hello, World!"), "hello--world"); // Commas become dashes
         assert_eq!(processor.create_anchor("  Spaces  "), "spaces");
-        assert_eq!(processor.create_anchor("Multiple--Dashes"), "multiple--dashes"); // Preserves consecutive dashes
+        assert_eq!(
+            processor.create_anchor("Multiple--Dashes"),
+            "multiple--dashes"
+        ); // Preserves consecutive dashes
         assert_eq!(processor.create_anchor("-trim-dashes-"), "trim-dashes");
     }
 
@@ -395,7 +417,8 @@ mod tests {
         assert!(links.is_empty());
 
         // Test with content that has links
-        let content = "This is a [link](https://example.com) and another [internal link](/docs/page.md).";
+        let content =
+            "This is a [link](https://example.com) and another [internal link](/docs/page.md).";
         let links = processor.extract_links(content);
 
         assert_eq!(links.len(), 2);
@@ -484,12 +507,16 @@ mod tests {
         assert!(code_blocks.is_empty());
 
         // Test with content that has a code block with language
-        let content = "Some text\n```rust\nfn main() {\n    println!(\"Hello, world!\");\n}\n```\nMore text";
+        let content =
+            "Some text\n```rust\nfn main() {\n    println!(\"Hello, world!\");\n}\n```\nMore text";
         let code_blocks = processor.extract_code_blocks(content);
 
         assert_eq!(code_blocks.len(), 1);
         assert_eq!(code_blocks[0].language, Some("rust".to_string()));
-        assert_eq!(code_blocks[0].content, "fn main() {\n    println!(\"Hello, world!\");\n}");
+        assert_eq!(
+            code_blocks[0].content,
+            "fn main() {\n    println!(\"Hello, world!\");\n}"
+        );
         assert_eq!(code_blocks[0].line_count, 3);
 
         // Test with content that has a code block without language
@@ -549,13 +576,11 @@ mod tests {
 
         // Test with headings
         let file = create_validated_file(vec![]);
-        let headings = vec![
-            Heading {
-                level: 1,
-                text: "Heading 1".to_string(),
-                anchor: "heading-1".to_string(),
-            }
-        ];
+        let headings = vec![Heading {
+            level: 1,
+            text: "Heading 1".to_string(),
+            anchor: "heading-1".to_string(),
+        }];
         let score = processor.calculate_quality_score(&file, &headings, &links);
         assert_eq!(score, 1.0); // 1.0 + 0.1 for having headings, but capped at 1.0
 
@@ -588,25 +613,21 @@ mod tests {
 
         // Test with warnings, headings, and internal links
         let file = create_validated_file(vec!["Warning".to_string()]);
-        let headings = vec![
-            Heading {
-                level: 1,
-                text: "Heading 1".to_string(),
-                anchor: "heading-1".to_string(),
-            }
-        ];
-        let links = vec![
-            Link {
-                text: "Link 1".to_string(),
-                url: "/internal1.md".to_string(),
-                is_internal: true,
-                is_valid: None,
-            },
-        ];
+        let headings = vec![Heading {
+            level: 1,
+            text: "Heading 1".to_string(),
+            anchor: "heading-1".to_string(),
+        }];
+        let links = vec![Link {
+            text: "Link 1".to_string(),
+            url: "/internal1.md".to_string(),
+            is_internal: true,
+            is_valid: None,
+        }];
 
         let score = processor.calculate_quality_score(&file, &headings, &links);
         // 1.0 - 0.1 (warning) + 0.1 (headings) + 0.05 (internal link) = 1.05
-        assert_eq!(score, 1.0);  // Capped at 1.0
+        assert_eq!(score, 1.0); // Capped at 1.0
     }
 
     #[async_test]
@@ -658,12 +679,18 @@ mod tests {
         assert_eq!(processed_doc.images[0].url, "/images/test.png");
 
         assert_eq!(processed_doc.code_blocks.len(), 1);
-        assert_eq!(processed_doc.code_blocks[0].language, Some("rust".to_string()));
+        assert_eq!(
+            processed_doc.code_blocks[0].language,
+            Some("rust".to_string())
+        );
 
         // Verify metadata
         assert_eq!(processed_doc.processing_metadata.warnings.len(), 1);
-        assert_eq!(processed_doc.processing_metadata.warnings[0], "Test warning");
-        // The quality score might be 1.0 if other factors (like headings and internal links) 
+        assert_eq!(
+            processed_doc.processing_metadata.warnings[0],
+            "Test warning"
+        );
+        // The quality score might be 1.0 if other factors (like headings and internal links)
         // compensate for the warning penalty
         assert!(processed_doc.processing_metadata.quality_score <= 1.0);
     }

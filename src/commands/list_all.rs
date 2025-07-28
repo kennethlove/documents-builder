@@ -9,7 +9,7 @@ impl ListAllCommand {
             match client.get_project_config(repository.as_str()).await {
                 Ok(_) => {
                     println!("Found config in repository: {}", repository)
-                },
+                }
                 Err(GitHubError::ConfigFileNotFound(_)) => {
                     eprintln!("No config found in repository: {}", repository);
                 }

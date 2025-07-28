@@ -2,10 +2,10 @@
 
 This document outlines the requirements for the Documents product. The Documents application is designed to allow an
 organization to create and manage the documentation for all of their projects smartly and efficiently. Each project keeps
-its documentation wherever it is most convenient for the project and Documents guarantees that those documents will end up
+its documentation wherever it is most convenient for the project, and Documents guarantees that those documents will end up
 in an easy-to-browse, easy-to-search, LLM-friendly central location. The Documents application is made up of several
 components, each of which is described in detail below. Ultimately, an organization using Documents will be able to keep
-all of their documentation up to date, reasonably located, searchable, browsable, and LLM-friendly.
+all of their documentation up to date, reasonably located, searchable, and browsable.
 
 ## Applications
 
@@ -60,7 +60,7 @@ Builder will be triggered by the Indexer when files are indexed, and it will als
 that the static website is always up to date. Additionally, the Builder will provide an API that allows users to browse
 the documentation and retrieve relevant content.
 
-## Other Features
+## Other Planned Features
 
 ### Search
 
@@ -80,6 +80,42 @@ applications, allowing it to access the indexed content and generate relevant re
 The Documents application will provide a server that allows users to access the documentation and search features via
 an MCP (Model Context Protocol) interface. This will allow other LLMs and applications to access the documentation.
 
+### Tagging
+
+The Documents application will provide a tagging feature that allows users to browse previous versions of the
+documentation. This will allow users to see how the documentation has changed over time and to access previous versions
+when working on legacy projects. The versioning feature will be provided by the Builder application, which will
+generate a static website that includes previous versions of the documentation.
+
+While all tags will be stored in the database, the Builder will generate a static website that includes only the latest
+version of the documentation by default. Users will be able to access previous versions of the documentation by
+selecting a specific tag in the user interface. The Builder will also provide an API that allows users to retrieve
+previous versions of the documentation based on the selected tag. This will allow users to access the documentation
+for legacy projects and to see how the documentation has changed over time.
+
+### Branching
+
+Along with versioning, the Documents application will support branching of documentation. This will allow users
+to maintain separate versions of the documentation for different branches of a project. The Scanner will capture the
+documentation files for each branch, and the Indexer will index them separately. The Builder will then generate a
+static website that includes the documentation for each branch, allowing users to browse and search the documentation
+for each branch separately. This will be particularly useful for projects that have multiple active branches, such as
+feature branches or release branches. Users will be able to switch between branches in the user interface, allowing
+them to view the documentation for the branch they are currently working on.
+
+Not all branches will be indexed by default. The Scanner will only capture the documentation files for branches that
+are indicated in the `documents.toml` file for each repository. This will allow users to control which branches
+are included in the documentation and which branches are excluded.
+
+### Document Grading
+
+The Documents application will provide a grading feature that allows users to evaluate the quality of the documentation.
+The quality score will be based on factors such as clarity, completeness, relevance, and newness of the content. The
+grading feature will be provided by the Indexer application, which will analyze the content of the documentation.
+Document scores will be stored in the database and will be accessible via the user interface. Users will be able to view
+the quality score of each document, allowing them to see how well the documentation is written and where it can be
+improved.
+
 ## User Interface
 
 The Documents application will provide a user interface that allows users to browse and search the documentation. The
@@ -93,3 +129,47 @@ way for users to browse previous versions of the documentation, allowing them to
 Navigation between related documents will be seamless, with intra-document links preserved even if the documents are
 stored in different repositories.
 
+## Phases
+
+### Phase 1: Basic Functionality (MVP)
+
+1. **Scanner**: Implement the Scanner application to scan repositories for `documents.toml` files and capture
+   documentation files specified within them. Ensure it can run on a schedule and be triggered by GitHub webhooks.
+2. **Indexer**: Implement the Indexer application to index the captured documentation files, making them searchable by 
+    basic full-text search. Ensure it can update the index when files are added, removed, or modified.
+3. **Builder**: Implement the Builder application to generate a static website from the indexed documentation files.
+   Ensure it preserves intra-document links and provides a basic user interface for browsing the documentation.
+
+### Phase 2: Enhanced Functionality
+
+1. **Builder**: Enhance the Builder to handle intra-repository links, ensuring that links between documents
+   in different repositories are preserved.
+2. **Indexer**: Implement a quality score evaluation for documentation files, providing feedback on clarity,
+   completeness, and relevance.
+3. **User Interface**: Develop a user interface that allows users to browse and search the documentation,
+   view quality scores, and navigate between related documents seamlessly.
+
+### Phase 3: Search and LLM Integration
+
+1. **Search Engine Integration**: Integrate a third-party search engine (e.g., Meilisearch) to provide
+   advanced search capabilities for the documentation.
+2. **LLM Integration**: Integrate a large language model (LLM) to enhance search capabilities and
+   provide natural language processing features, such as generating summaries and relevant results based on user queries.
+3. **MCP Server**: Implement an MCP server to allow other LLMs and applications to access the documentation
+   and search features via an MCP interface.
+
+### Phase 4: Branching and Versioning
+
+1. **Tagging**: Implement a tagging feature that allows users to browse previous versions of the documentation.
+   Ensure that the Builder generates a static website that includes only the latest version by default, with an option
+   to access previous versions based on selected tags.
+2. **Branching**: Implement branching support for documentation, allowing users to maintain separate versions
+   of the documentation for different branches of a project.
+3. **User Interface Enhancements**: Enhance the user interface to support browsing previous versions of the
+   documentation and switching between branches. Ensure that navigation between related documents remains seamless.
+4. **Comparison Feature**: Implement a feature that allows users to compare documentation files across different
+   branches or versions, highlighting differences and changes made over time.
+5. **Scanner**: Enhance the Scanner to capture documentation files for branches specified in the `documents.toml` file,
+   allowing users to control which branches are included in the documentation.
+6. **Builder**: Ensure that the Builder generates a static website that includes documentation for each branch,
+   allowing users to browse and search the documentation for each branch separately.

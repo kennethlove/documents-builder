@@ -1,18 +1,23 @@
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use serde::{Deserialize, Serialize};
 
+pub mod commands;
+pub mod config;
+pub mod database;
 pub mod github;
+pub mod output;
 pub mod processing;
 pub mod web;
-pub mod commands;
-mod output;
+
+pub use config::{Config, ConfigError};
+pub use database::{Database, DatabaseError};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct DocumentConfig {
     pub title: String,
     pub path: Option<PathBuf>,
-    pub sub_documents: Option<Vec<DocumentConfig>>
+    pub sub_documents: Option<Vec<DocumentConfig>>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -24,7 +29,7 @@ pub struct ProjectDetails {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ProjectConfig {
     pub project: ProjectDetails,
-    pub documents: HashMap<String, DocumentConfig>
+    pub documents: HashMap<String, DocumentConfig>,
 }
 
 #[derive(clap::ValueEnum, Clone, Debug)]

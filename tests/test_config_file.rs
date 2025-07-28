@@ -48,7 +48,8 @@ fn test_parse_config_with_documents() {
     title = "Document 3"
     "#;
 
-    let config: ProjectConfig = toml::from_str(config_str).expect("Failed to parse test config with documents");
+    let config: ProjectConfig =
+        toml::from_str(config_str).expect("Failed to parse test config with documents");
 
     // Verify the project details
     assert_eq!(config.project.name, "Test Project");
@@ -63,7 +64,10 @@ fn test_parse_config_with_documents() {
     // Now that fields are public, we can directly verify document properties
     let doc1 = &config.documents["doc1"];
     assert_eq!(doc1.title, "Document 1");
-    assert_eq!(doc1.path.as_ref().unwrap().to_str().unwrap(), "docs/doc1.md");
+    assert_eq!(
+        doc1.path.as_ref().unwrap().to_str().unwrap(),
+        "docs/doc1.md"
+    );
     assert!(doc1.sub_documents.is_none());
 
     let doc2 = &config.documents["doc2"];
@@ -75,9 +79,15 @@ fn test_parse_config_with_documents() {
     let sub_docs = doc2.sub_documents.as_ref().unwrap();
     assert_eq!(sub_docs.len(), 2);
     assert_eq!(sub_docs[0].title, "Sub Document 1");
-    assert_eq!(sub_docs[0].path.as_ref().unwrap().to_str().unwrap(), "docs/sub/doc1.md");
+    assert_eq!(
+        sub_docs[0].path.as_ref().unwrap().to_str().unwrap(),
+        "docs/sub/doc1.md"
+    );
     assert_eq!(sub_docs[1].title, "Sub Document 2");
-    assert_eq!(sub_docs[1].path.as_ref().unwrap().to_str().unwrap(), "docs/sub/doc2.md");
+    assert_eq!(
+        sub_docs[1].path.as_ref().unwrap().to_str().unwrap(),
+        "docs/sub/doc2.md"
+    );
 
     let doc3 = &config.documents["doc3"];
     assert_eq!(doc3.title, "Document 3");
@@ -109,7 +119,8 @@ fn test_parse_config_with_nested_documents() {
     path = "docs/sub/doc2.md"
     "#;
 
-    let config: ProjectConfig = toml::from_str(config_str).expect("Failed to parse test config with nested documents");
+    let config: ProjectConfig =
+        toml::from_str(config_str).expect("Failed to parse test config with nested documents");
 
     // Verify the project details
     assert_eq!(config.project.name, "Test Project");
@@ -123,7 +134,10 @@ fn test_parse_config_with_nested_documents() {
     // Now that fields are public, we can directly verify the nested document structure
     let doc1 = &config.documents["doc1"];
     assert_eq!(doc1.title, "Document 1");
-    assert_eq!(doc1.path.as_ref().unwrap().to_str().unwrap(), "docs/doc1.md");
+    assert_eq!(
+        doc1.path.as_ref().unwrap().to_str().unwrap(),
+        "docs/doc1.md"
+    );
     assert!(doc1.sub_documents.is_none());
 
     let doc2 = &config.documents["doc2"];
@@ -131,17 +145,26 @@ fn test_parse_config_with_nested_documents() {
     assert!(doc2.path.is_none());
 
     // Verify the sub-documents structure
-    let sub_docs = doc2.sub_documents.as_ref().expect("doc2 should have sub_documents");
+    let sub_docs = doc2
+        .sub_documents
+        .as_ref()
+        .expect("doc2 should have sub_documents");
     assert_eq!(sub_docs.len(), 2);
 
     // Verify first sub-document
     assert_eq!(sub_docs[0].title, "Sub Document 1");
-    assert_eq!(sub_docs[0].path.as_ref().unwrap().to_str().unwrap(), "docs/sub/doc1.md");
+    assert_eq!(
+        sub_docs[0].path.as_ref().unwrap().to_str().unwrap(),
+        "docs/sub/doc1.md"
+    );
     assert!(sub_docs[0].sub_documents.is_none());
 
     // Verify second sub-document
     assert_eq!(sub_docs[1].title, "Sub Document 2");
-    assert_eq!(sub_docs[1].path.as_ref().unwrap().to_str().unwrap(), "docs/sub/doc2.md");
+    assert_eq!(
+        sub_docs[1].path.as_ref().unwrap().to_str().unwrap(),
+        "docs/sub/doc2.md"
+    );
     assert!(sub_docs[1].sub_documents.is_none());
 }
 
@@ -162,7 +185,8 @@ fn test_parse_config_with_inline_tables() {
     ]}
     "#;
 
-    let config: ProjectConfig = toml::from_str(config_str).expect("Failed to parse test config with inline tables");
+    let config: ProjectConfig =
+        toml::from_str(config_str).expect("Failed to parse test config with inline tables");
 
     // Verify the project details
     assert_eq!(config.project.name, "Documents Test");
@@ -179,13 +203,19 @@ fn test_parse_config_with_inline_tables() {
     // Verify home document
     let home = &config.documents["home"];
     assert_eq!(home.title, "Home page");
-    assert_eq!(home.path.as_ref().unwrap().to_str().unwrap(), "docs/index.md");
+    assert_eq!(
+        home.path.as_ref().unwrap().to_str().unwrap(),
+        "docs/index.md"
+    );
     assert!(home.sub_documents.is_none());
 
     // Verify getting_started document
     let getting_started = &config.documents["getting_started"];
     assert_eq!(getting_started.title, "Getting started with documents");
-    assert_eq!(getting_started.path.as_ref().unwrap().to_str().unwrap(), "docs/getting_started.md");
+    assert_eq!(
+        getting_started.path.as_ref().unwrap().to_str().unwrap(),
+        "docs/getting_started.md"
+    );
     assert!(getting_started.sub_documents.is_none());
 
     // Verify references document with its sub-documents
@@ -194,16 +224,25 @@ fn test_parse_config_with_inline_tables() {
     assert!(references.path.is_none());
 
     // Verify sub-documents in references
-    let sub_docs = references.sub_documents.as_ref().expect("references should have sub_documents");
+    let sub_docs = references
+        .sub_documents
+        .as_ref()
+        .expect("references should have sub_documents");
     assert_eq!(sub_docs.len(), 2);
 
     // Verify first sub-document (Configuration)
     assert_eq!(sub_docs[0].title, "Configuration");
-    assert_eq!(sub_docs[0].path.as_ref().unwrap().to_str().unwrap(), "references/configuration.md");
+    assert_eq!(
+        sub_docs[0].path.as_ref().unwrap().to_str().unwrap(),
+        "references/configuration.md"
+    );
     assert!(sub_docs[0].sub_documents.is_none());
 
     // Verify second sub-document (Schema)
     assert_eq!(sub_docs[1].title, "Schema");
-    assert_eq!(sub_docs[1].path.as_ref().unwrap().to_str().unwrap(), "references/schema.md");
+    assert_eq!(
+        sub_docs[1].path.as_ref().unwrap().to_str().unwrap(),
+        "references/schema.md"
+    );
     assert!(sub_docs[1].sub_documents.is_none());
 }
