@@ -2,6 +2,7 @@ use crate::Config;
 use crate::ProjectConfig;
 use async_trait::async_trait;
 use octocrab::{Octocrab, OctocrabBuilder};
+use std::collections::HashMap;
 
 #[derive(thiserror::Error, Debug)]
 pub enum GitHubError {
@@ -47,6 +48,17 @@ pub struct RepositoryFile {
     pub file_type: String,
 }
 
+/// Represents a file in a repository with its content
+#[derive(Debug, Clone)]
+pub struct RepositoryFileContent {
+    /// Name of the repository
+    pub repo_name: String,
+    /// Whether the file exists in the repository
+    pub exists: bool,
+    /// Content of the file, if it exists
+    pub content: Option<String>,
+}
+
 #[async_trait]
 pub trait Client {
     async fn current_user(&self) -> Result<String, GitHubError>;
@@ -74,6 +86,49 @@ pub trait Client {
         repo_name: &str,
         path: Option<&str>,
     ) -> Result<Vec<RepositoryFile>, GitHubError>;
+
+    /// Batch fetch multiple files from a single repository using GraphQL
+    ///
+    /// This method uses GitHub's GraphQL API to efficiently fetch the content of multiple files
+    /// from a single repository in one request, reducing the number of API calls.
+    ///
+    /// # Arguments
+    ///
+    /// * `repo_name` - The name of the repository
+    /// * `file_paths` - A vector of file paths to fetch
+    ///
+    /// # Returns
+    ///
+    /// * `Result<HashMap<String, Option<String>>, GitHubError>` - A map of file paths to their content.
+    ///   The value is `Some(content)` if the file exists, or `None` if it doesn't exist.
+    async fn batch_fetch_files(
+        &self,
+        repo_name: &str,
+        file_paths: &[String],
+    ) -> Result<HashMap<String, Option<String>>, GitHubError>;
+    
+    /// Batch check multiple repositories for the existence of the documents.toml configuration file using GraphQL
+    ///
+    /// This method uses GitHub's GraphQL API to efficiently check multiple repositories
+    /// at once for the existence of the documents.toml configuration file, reducing the number of API calls.
+    ///
+    /// # Returns
+    ///
+    /// * `Result<HashMap<String, bool>, GitHubError>` - A map of repository names to a boolean
+    ///   indicating whether the documents.toml configuration file exists in that repository
+    async fn batch_check_config_file_exists(&self) -> Result<HashMap<String, bool>, GitHubError>;
+    
+    /// Batch fetch documents.toml configuration file content from multiple repositories using GraphQL
+    ///
+    /// This method uses GitHub's GraphQL API to efficiently check multiple repositories
+    /// at once for the existence of the documents.toml configuration file and fetch its content if it exists,
+    /// reducing the number of API calls compared to checking and fetching separately.
+    ///
+    /// # Returns
+    ///
+    /// * `Result<Vec<RepositoryFileContent>, GitHubError>` - A vector of repository file content information
+    ///   including repository name, whether the documents.toml file exists, and the file content if it exists
+    async fn batch_fetch_config_file_content(&self) -> Result<Vec<RepositoryFileContent>, GitHubError>;
 }
 
 #[derive(Clone, Debug)]
@@ -263,11 +318,248 @@ impl Client for GitHubClient {
 
         Ok(files)
     }
+
+    async fn batch_check_config_file_exists(&self) -> Result<HashMap<String, bool>, GitHubError> {
+        let mut result = HashMap::new();
+        let mut cursor: Option<String> = None;
+
+        // Handle pagination to get all repositories
+        loop {
+            // Create the GraphQL query to check for documents.toml configuration file
+            let query = format!(
+                r#"
+                query {{
+                  organization(login: "{org}") {{
+                    repositories(first: 100, after: {cursor}) {{
+                      pageInfo {{
+                        hasNextPage
+                        endCursor
+                      }}
+                      nodes {{
+                        name
+                        object(expression: "HEAD:documents.toml") {{
+                          ... on Blob {{
+                            id
+                          }}
+                        }}
+                      }}
+                    }}
+                  }}
+                }}
+                "#,
+                org = self.organization,
+                cursor = match &cursor {
+                    Some(c) => format!("\"{}\"", c),
+                    None => "null".to_string()
+                }
+            );
+
+            let query = serde_json::json!({"query": &query});
+
+            // Execute the GraphQL query
+            let response: serde_json::Value = self.client
+                .graphql(&query)
+                .await
+                .map_err(|e| GitHubError::ApiError(e))?;
+
+            // Extract repository data from response
+            let repos = response["data"]["organization"]["repositories"]["nodes"]
+                .as_array()
+                .ok_or_else(|| GitHubError::RequestFailed("Invalid GraphQL response format".to_string()))?;
+
+            // Process each repository
+            for repo in repos {
+                let repo_name = repo["name"]
+                    .as_str()
+                    .ok_or_else(|| GitHubError::RequestFailed("Invalid repository name in response".to_string()))?;
+
+                // Check if the file exists (object will be null if file doesn't exist)
+                let file_exists = !repo["object"].is_null();
+                result.insert(repo_name.to_string(), file_exists);
+            }
+
+            // Check if there are more pages
+            let has_next_page = response["data"]["organization"]["repositories"]["pageInfo"]["hasNextPage"]
+                .as_bool()
+                .unwrap_or(false);
+
+            if !has_next_page {
+                break;
+            }
+
+            // Update cursor for next page
+            cursor = response["data"]["organization"]["repositories"]["pageInfo"]["endCursor"]
+                .as_str()
+                .map(|s| s.to_string());
+        }
+
+        Ok(result)
+    }
+
+    async fn batch_fetch_files(
+        &self,
+        repo_name: &str,
+        file_paths: &[String],
+    ) -> Result<HashMap<String, Option<String>>, GitHubError> {
+        if file_paths.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        // Build GraphQL query to fetch multiple files from a single repository
+        let mut file_queries = Vec::new();
+        for (index, file_path) in file_paths.iter().enumerate() {
+            file_queries.push(format!(
+                r#"file{}: object(expression: "HEAD:{}") {{
+                    ... on Blob {{
+                        id
+                        text
+                    }}
+                }}"#,
+                index, file_path
+            ));
+        }
+
+        let query = format!(
+            r#"
+            query {{
+              repository(owner: "{org}", name: "{repo}") {{
+                {files}
+              }}
+            }}
+            "#,
+            org = self.organization,
+            repo = repo_name,
+            files = file_queries.join("\n                ")
+        );
+
+        let query = serde_json::json!({"query": &query});
+
+        // Execute the GraphQL query
+        let response: serde_json::Value = self.client
+            .graphql(&query)
+            .await
+            .map_err(|e| GitHubError::ApiError(e))?;
+
+        // Extract file data from response
+        let repository = response["data"]["repository"]
+            .as_object()
+            .ok_or_else(|| GitHubError::RequestFailed("Invalid GraphQL response format".to_string()))?;
+
+        let mut result = HashMap::new();
+        
+        // Process each file
+        for (index, file_path) in file_paths.iter().enumerate() {
+            let file_key = format!("file{}", index);
+            let file_object = &repository[&file_key];
+            
+            // Check if the file exists (object will be null if file doesn't exist)
+            let content = if !file_object.is_null() {
+                file_object["text"].as_str().map(|s| s.to_string())
+            } else {
+                None
+            };
+            
+            result.insert(file_path.clone(), content);
+        }
+
+        Ok(result)
+    }
+
+    async fn batch_fetch_config_file_content(&self) -> Result<Vec<RepositoryFileContent>, GitHubError> {
+        let mut result = Vec::new();
+        let mut cursor: Option<String> = None;
+
+        // Handle pagination to get all repositories
+        loop {
+            // Create the GraphQL query for documents.toml file, including text content
+            let query = format!(
+                r#"
+                query {{
+                  organization(login: "{org}") {{
+                    repositories(first: 100, after: {cursor}) {{
+                      pageInfo {{
+                        hasNextPage
+                        endCursor
+                      }}
+                      nodes {{
+                        name
+                        object(expression: "HEAD:documents.toml") {{
+                          ... on Blob {{
+                            id
+                            text
+                          }}
+                        }}
+                      }}
+                    }}
+                  }}
+                }}
+                "#,
+                org = self.organization,
+                cursor = match &cursor {
+                    Some(c) => format!("\"{}\"", c),
+                    None => "null".to_string()
+                }
+            );
+
+            let query = serde_json::json!({"query": &query});
+
+            // Execute the GraphQL query
+            let response: serde_json::Value = self.client
+                .graphql(&query)
+                .await
+                .map_err(|e| GitHubError::ApiError(e))?;
+
+            // Extract repository data from response
+            let repos = response["data"]["organization"]["repositories"]["nodes"]
+                .as_array()
+                .ok_or_else(|| GitHubError::RequestFailed("Invalid GraphQL response format".to_string()))?;
+
+            // Process each repository
+            for repo in repos {
+                let repo_name = repo["name"]
+                    .as_str()
+                    .ok_or_else(|| GitHubError::RequestFailed("Invalid repository name in response".to_string()))?
+                    .to_string();
+
+                // Check if the file exists (object will be null if file doesn't exist)
+                let file_exists = !repo["object"].is_null();
+
+                // Get the file content if it exists
+                let content = if file_exists {
+                    repo["object"]["text"].as_str().map(|s| s.to_string())
+                } else {
+                    None
+                };
+
+                result.push(RepositoryFileContent {
+                    repo_name,
+                    exists: file_exists,
+                    content,
+                });
+            }
+
+            // Check if there are more pages
+            let has_next_page = response["data"]["organization"]["repositories"]["pageInfo"]["hasNextPage"]
+                .as_bool()
+                .unwrap_or(false);
+
+            if !has_next_page {
+                break;
+            }
+
+            // Update cursor for next page
+            cursor = response["data"]["organization"]["repositories"]["pageInfo"]["endCursor"]
+                .as_str()
+                .map(|s| s.to_string());
+        }
+
+        Ok(result)
+    }
 }
 
 #[cfg(test)]
 pub mod tests {
-    use crate::github::{Client, GitHubError, RepositoryFile};
+    use crate::github::{Client, GitHubError, RepositoryFile, RepositoryFileContent};
     use async_trait::async_trait;
     use std::collections::HashMap;
     use std::path::PathBuf;
@@ -398,6 +690,63 @@ pub mod tests {
             }
 
             Ok(result)
+        }
+
+        async fn batch_fetch_files(
+            &self,
+            _repo_name: &str,
+            file_paths: &[String],
+        ) -> Result<HashMap<String, Option<String>>, GitHubError> {
+            let mut result = HashMap::new();
+            
+            for file_path in file_paths {
+                let content = self.file_contents.get(file_path).cloned();
+                result.insert(file_path.clone(), content);
+            }
+            
+            Ok(result)
+        }
+
+        async fn batch_check_config_file_exists(&self) -> Result<HashMap<String, bool>, GitHubError> {
+            let mut result = HashMap::new();
+
+            // For testing, we'll return that test-repo has the documents.toml configuration file
+            result.insert("test-repo".to_string(), true);
+
+            Ok(result)
+        }
+
+        async fn batch_fetch_config_file_content(&self) -> Result<Vec<RepositoryFileContent>, GitHubError> {
+            let mut result = Vec::new();
+
+            // For testing, we'll return that test-repo has the documents.toml configuration file
+            result.push(RepositoryFileContent {
+                repo_name: "test-repo".to_string(),
+                exists: true,
+                content: Some("[project]\nname = \"Test Project\"\ndescription = \"A test project\"".to_string()),
+            });
+
+            Ok(result)
+        }
+    }
+
+    #[cfg(test)]
+    mod batch_content_tests {
+        use super::*;
+
+        #[tokio::test]
+        async fn test_batch_fetch_config_file_content() {
+            let client = MockGitHubClient::new();
+            
+            let results = client.batch_fetch_config_file_content().await.unwrap();
+            
+            assert_eq!(results.len(), 1);
+            assert_eq!(results[0].repo_name, "test-repo");
+            assert_eq!(results[0].exists, true);
+            assert!(results[0].content.is_some());
+            
+            let content = results[0].content.as_ref().unwrap();
+            assert!(content.contains("Test Project"));
         }
     }
 }

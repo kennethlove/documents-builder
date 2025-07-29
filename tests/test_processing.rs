@@ -3,7 +3,7 @@
 // These tests use mockito to mock the GitHub client's behavior.
 
 use async_trait::async_trait;
-use documents::github::{Client, GitHubClient, GitHubError, RepositoryFile};
+use documents::github::{Client, GitHubClient, GitHubError, RepositoryFile, RepositoryFileContent};
 use documents::processing::RepositoryProcessor;
 use documents::processing::{DocumentProcessingPipeline, ProcessingContext};
 use documents::{DocumentConfig, ProjectConfig, ProjectDetails};
@@ -136,6 +136,51 @@ impl Client for MockGitHubClient {
             }
         }
 
+        Ok(result)
+    }
+
+    async fn batch_fetch_files(
+        &self,
+        _repo_name: &str,
+        file_paths: &[String],
+    ) -> Result<HashMap<String, Option<String>>, GitHubError> {
+        let mut result = HashMap::new();
+        
+        for file_path in file_paths {
+            let content = self.file_contents.get(file_path).cloned();
+            result.insert(file_path.clone(), content);
+        }
+        
+        Ok(result)
+    }
+
+    async fn batch_check_config_file_exists(&self) -> Result<HashMap<String, bool>, GitHubError> {
+        let mut result = HashMap::new();
+        
+        // For testing, we'll return that test-repo has the documents.toml configuration file if it exists in file_contents
+        let file_exists = self.file_contents.contains_key("documents.toml");
+        result.insert("test-repo".to_string(), file_exists);
+        
+        Ok(result)
+    }
+    
+    async fn batch_fetch_config_file_content(&self) -> Result<Vec<RepositoryFileContent>, GitHubError> {
+        let mut result = Vec::new();
+        
+        // For testing, check if documents.toml exists in file_contents and return appropriate result
+        let file_exists = self.file_contents.contains_key("documents.toml");
+        let content = if file_exists {
+            self.file_contents.get("documents.toml").cloned()
+        } else {
+            None
+        };
+        
+        result.push(RepositoryFileContent {
+            repo_name: "test-repo".to_string(),
+            exists: file_exists,
+            content,
+        });
+        
         Ok(result)
     }
 }

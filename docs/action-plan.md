@@ -46,8 +46,9 @@ processing, and basic documentation serving with search capabilities.
 **Priority: High**
 
 - [x] Basic CLI structure with `scan`, `list-all`, and `serve` commands
-- [ ] Add `scan-org` command for full organization scanning
-- [ ] Add `process-repo <repo-name>` command for single repository processing
+- [x] Add `scan-organization` command for full organization scanning
+- [ ] Add `process-organization` command for full organization processing
+- [ ] Add `process-repository <repository-name>` command for single repository processing
 - [ ] Add `search <query>` command for testing search functionality
 - [x] Add `health-check` command for system health and processing status
 - [ ] Add `validate-repo-config <repo-name>` command for testing repository configurations
