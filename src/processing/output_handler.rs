@@ -8,16 +8,14 @@ use tracing;
 pub struct OutputHandler {
     output_dir: PathBuf,
     format: OutputFormat,
-    verbose: bool,
 }
 
 impl OutputHandler {
     /// Create a new OutputHandler
-    pub fn new(output_dir: PathBuf, format: OutputFormat, verbose: bool) -> Self {
+    pub fn new(output_dir: PathBuf, format: OutputFormat) -> Self {
         Self {
             output_dir,
             format,
-            verbose,
         }
     }
 
