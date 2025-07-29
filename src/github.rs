@@ -86,6 +86,26 @@ pub trait Client {
         repo_name: &str,
         path: Option<&str>,
     ) -> Result<Vec<RepositoryFile>, GitHubError>;
+
+    /// Batch fetch multiple files from a single repository using GraphQL
+    ///
+    /// This method uses GitHub's GraphQL API to efficiently fetch the content of multiple files
+    /// from a single repository in one request, reducing the number of API calls.
+    ///
+    /// # Arguments
+    ///
+    /// * `repo_name` - The name of the repository
+    /// * `file_paths` - A vector of file paths to fetch
+    ///
+    /// # Returns
+    ///
+    /// * `Result<HashMap<String, Option<String>>, GitHubError>` - A map of file paths to their content.
+    ///   The value is `Some(content)` if the file exists, or `None` if it doesn't exist.
+    async fn batch_fetch_files(
+        &self,
+        repo_name: &str,
+        file_paths: &[String],
+    ) -> Result<HashMap<String, Option<String>>, GitHubError>;
     
     /// Batch check multiple repositories for the existence of the documents.toml configuration file using GraphQL
     ///
@@ -376,6 +396,75 @@ impl Client for GitHubClient {
         Ok(result)
     }
 
+    async fn batch_fetch_files(
+        &self,
+        repo_name: &str,
+        file_paths: &[String],
+    ) -> Result<HashMap<String, Option<String>>, GitHubError> {
+        if file_paths.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        // Build GraphQL query to fetch multiple files from a single repository
+        let mut file_queries = Vec::new();
+        for (index, file_path) in file_paths.iter().enumerate() {
+            file_queries.push(format!(
+                r#"file{}: object(expression: "HEAD:{}") {{
+                    ... on Blob {{
+                        id
+                        text
+                    }}
+                }}"#,
+                index, file_path
+            ));
+        }
+
+        let query = format!(
+            r#"
+            query {{
+              repository(owner: "{org}", name: "{repo}") {{
+                {files}
+              }}
+            }}
+            "#,
+            org = self.organization,
+            repo = repo_name,
+            files = file_queries.join("\n                ")
+        );
+
+        let query = serde_json::json!({"query": &query});
+
+        // Execute the GraphQL query
+        let response: serde_json::Value = self.client
+            .graphql(&query)
+            .await
+            .map_err(|e| GitHubError::ApiError(e))?;
+
+        // Extract file data from response
+        let repository = response["data"]["repository"]
+            .as_object()
+            .ok_or_else(|| GitHubError::RequestFailed("Invalid GraphQL response format".to_string()))?;
+
+        let mut result = HashMap::new();
+        
+        // Process each file
+        for (index, file_path) in file_paths.iter().enumerate() {
+            let file_key = format!("file{}", index);
+            let file_object = &repository[&file_key];
+            
+            // Check if the file exists (object will be null if file doesn't exist)
+            let content = if file_object["id"].is_string() {
+                file_object["text"].as_str().map(|s| s.to_string())
+            } else {
+                None
+            };
+            
+            result.insert(file_path.clone(), content);
+        }
+
+        Ok(result)
+    }
+
     async fn batch_fetch_config_file_content(&self) -> Result<Vec<RepositoryFileContent>, GitHubError> {
         let mut result = Vec::new();
         let mut cursor: Option<String> = None;
@@ -600,6 +689,21 @@ pub mod tests {
                 }
             }
 
+            Ok(result)
+        }
+
+        async fn batch_fetch_files(
+            &self,
+            _repo_name: &str,
+            file_paths: &[String],
+        ) -> Result<HashMap<String, Option<String>>, GitHubError> {
+            let mut result = HashMap::new();
+            
+            for file_path in file_paths {
+                let content = self.file_contents.get(file_path).cloned();
+                result.insert(file_path.clone(), content);
+            }
+            
             Ok(result)
         }
 

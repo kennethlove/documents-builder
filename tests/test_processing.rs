@@ -139,6 +139,21 @@ impl Client for MockGitHubClient {
         Ok(result)
     }
 
+    async fn batch_fetch_files(
+        &self,
+        _repo_name: &str,
+        file_paths: &[String],
+    ) -> Result<HashMap<String, Option<String>>, GitHubError> {
+        let mut result = HashMap::new();
+        
+        for file_path in file_paths {
+            let content = self.file_contents.get(file_path).cloned();
+            result.insert(file_path.clone(), content);
+        }
+        
+        Ok(result)
+    }
+
     async fn batch_check_config_file_exists(&self) -> Result<HashMap<String, bool>, GitHubError> {
         let mut result = HashMap::new();
         

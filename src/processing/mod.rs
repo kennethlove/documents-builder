@@ -104,7 +104,18 @@ impl RepositoryProcessor {
             }
         }
 
-        // Step 2: Process each markdown file
+        // Step 2: Batch fetch all markdown file contents
+        if verbose {
+            debug!("Batch fetching {} markdown files", markdown_files.len());
+        }
+
+        let file_contents = self
+            .github
+            .batch_fetch_files(&self.repository, &markdown_files)
+            .await
+            .map_err(ProcessingError::GitHub)?;
+
+        // Step 3: Process each markdown file with its content
         let mut fragments = Vec::new();
         let mut files_processed = 0;
 
@@ -113,17 +124,27 @@ impl RepositoryProcessor {
                 debug!("Processing file: {}", file_path);
             }
 
-            match self.process_markdown_file(&file_path).await {
-                Ok(mut file_fragments) => {
-                    files_processed += 1;
-                    fragments.append(&mut file_fragments);
+            match file_contents.get(&file_path) {
+                Some(Some(content)) => {
+                    match self.process_markdown_file_with_content(&file_path, content) {
+                        Ok(mut file_fragments) => {
+                            files_processed += 1;
+                            fragments.append(&mut file_fragments);
 
-                    if verbose {
-                        debug!("  Generated {} fragments", file_fragments.len());
+                            if verbose {
+                                debug!("  Generated {} fragments", file_fragments.len());
+                            }
+                        }
+                        Err(e) => {
+                            warn!("Failed to process file {}: {}", file_path, e);
+                        }
                     }
                 }
-                Err(e) => {
-                    warn!("Failed to process file {}: {}", file_path, e);
+                Some(None) => {
+                    warn!("File not found: {}", file_path);
+                }
+                None => {
+                    warn!("File not included in batch response: {}", file_path);
                 }
             }
         }
@@ -197,7 +218,17 @@ impl RepositoryProcessor {
             .await
             .map_err(ProcessingError::GitHub)?;
 
-        let (frontmatter, markdown_content) = self.extract_frontmatter(&content);
+        self.process_markdown_file_with_content(file_path, &content)
+    }
+
+    fn process_markdown_file_with_content(
+        &self,
+        file_path: &str,
+        content: &str,
+    ) -> Result<Vec<DocumentFragment>, ProcessingError> {
+        debug!("Processing markdown file with content: {}", file_path);
+
+        let (frontmatter, markdown_content) = self.extract_frontmatter(content);
 
         // Generate fragments
         let mut fragments = Vec::new();
