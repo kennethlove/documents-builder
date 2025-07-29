@@ -2,6 +2,7 @@ use crate::OutputFormat;
 use crate::github::{Client, GitHubClient, GitHubError};
 use crate::processing::{RepositoryProcessor, OutputHandler};
 use crate::web::AppError;
+use crate::Console;
 use clap::Args;
 use std::path::PathBuf;
 
@@ -47,69 +48,80 @@ impl ProcessRepositoryCommand {
     }
 
     pub async fn execute(&self, client: &GitHubClient) -> Result<(), AppError> {
+        let console = Console::new(self.verbose);
         let output_dir = self
             .output
             .clone()
             .unwrap_or_else(|| PathBuf::from("output").join(&self.repository));
 
-        if self.verbose {
-            tracing::debug!("Processing repository: {}", self.repository);
-            tracing::debug!("Output directory: {}", output_dir.display());
-            tracing::debug!("Output format: {:?}", self.format);
-            tracing::debug!("Force reprocessing: {}", self.force);
-        }
+        // Header message
+        console.header(&format!("Processing repository: {}", self.repository));
 
+        console.verbose(&format!("Output directory: {}", output_dir.display()));
+        console.verbose(&format!("Output format: {:?}", self.format));
+        console.verbose(&format!("Force reprocessing: {}", self.force));
+
+        // Step 1: Fetch configuration
+        let spinner = console.create_spinner("Fetching repository configuration...");
+        
         match client.get_project_config(self.repository.as_str()).await {
             Ok(config) => {
+                console.finish_progress_success(&spinner, "Configuration found");
                 tracing::info!("Found configuration for repository: {}", self.repository);
+                
                 if self.verbose {
-                    tracing::debug!("Repository configuration: {:#?}", config);
+                    console.verbose(&format!("Repository configuration: {:#?}", config));
                 }
 
-                // Create processor and run processing
+                // Step 2: Process repository
+                let process_spinner = console.create_spinner("Processing documents...");
                 let processor =
                     RepositoryProcessor::new(client.clone(), config, self.repository.clone());
 
                 match processor.process(self.verbose).await {
                     Ok(result) => {
-                        // Use shared OutputHandler for consistent output handling
+                        console.finish_progress_success(&process_spinner, "Documents processed");
+                        
+                        // Step 3: Save results
+                        let save_spinner = console.create_spinner("Saving results...");
                         let output_handler = OutputHandler::new(
-                            output_dir,
+                            output_dir.clone(),
                             self.format.clone(),
-                            self.verbose,
                         );
                         
-                        output_handler.save_results(&result)?;
-                        Ok(())
+                        match output_handler.save_results(&result) {
+                            Ok(()) => {
+                                console.finish_progress_success(&save_spinner, "Results saved");
+                                console.success(&format!("Successfully processed repository: {}", self.repository));
+                                console.info(&format!("Output saved to: {}", output_dir.display()));
+                                Ok(())
+                            }
+                            Err(e) => {
+                                console.finish_progress_error(&save_spinner, "Failed to save results");
+                                console.error(&format!("Error saving results: {}", e));
+                                Err(e)
+                            }
+                        }
                     }
                     Err(e) => {
+                        console.finish_progress_error(&process_spinner, "Processing failed");
+                        console.error(&format!("Error processing repository {}: {}", self.repository, e));
                         tracing::error!("Error processing repository {}: {}", self.repository, e);
-                        eprintln!("Error processing repository {}: {}", self.repository, e);
                         std::process::exit(1);
                     }
                 }
             }
             Err(GitHubError::ConfigFileNotFound(_)) => {
-                tracing::error!(
-                    "No configuration file found in repository: {}",
-                    self.repository
-                );
-                eprintln!(
-                    "No configuration file found in repository: {}",
-                    self.repository
-                );
+                console.finish_progress_error(&spinner, "Configuration not found");
+                console.error(&format!("No documents.toml configuration file found in repository: {}", self.repository));
+                console.info("Make sure the repository has a documents.toml file in its root directory");
+                tracing::error!("No configuration file found in repository: {}", self.repository);
                 std::process::exit(1);
             }
             Err(e) => {
-                tracing::error!(
-                    "Error retrieving configuration for repository: {}: {}",
-                    self.repository,
-                    e
-                );
-                eprintln!(
-                    "Error retrieving configuration for repository {}: {}",
-                    self.repository, e
-                );
+                console.finish_progress_error(&spinner, "Failed to fetch configuration");
+                console.error(&format!("Error retrieving configuration for repository {}: {}", self.repository, e));
+                tracing::error!("Error retrieving configuration for repository: {}: {}", self.repository, e);
                 std::process::exit(1);
             }
         }

@@ -2,6 +2,7 @@ use crate::OutputFormat;
 use crate::github::{Client, GitHubClient, GitHubError};
 use crate::processing::{DocumentFragment, RepositoryProcessor};
 use crate::web::AppError;
+use crate::Console;
 use clap::Args;
 use std::path::PathBuf;
 use tracing::{debug, error, info};
@@ -48,6 +49,9 @@ impl ExportFragmentsCommand {
     }
 
     pub async fn execute(&self, client: &GitHubClient) -> Result<(), AppError> {
+        let console = Console::new(false);
+        
+        console.header(&format!("Exporting fragments for repository: {}", self.repository));
         info!("Exporting fragments for repository: {}", self.repository);
 
         let output_dir = self
@@ -55,29 +59,36 @@ impl ExportFragmentsCommand {
             .clone()
             .unwrap_or_else(|| PathBuf::from("output/fragments").join(&self.repository));
 
+        console.verbose(&format!("Export directory: {}", output_dir.display()));
+        console.verbose(&format!("Export format: {:?}", self.format));
+        console.verbose(&format!("Include metadata: {}", self.include_metadata));
+        console.verbose(&format!("Compress output: {}", self.compress));
+        
         debug!("Export directory: {}", output_dir.display());
         debug!("Export format: {:?}", self.format);
         debug!("Include metadata: {}", self.include_metadata);
         debug!("Compress output: {}", self.compress);
 
-        // Get repository configuration
+        // Step 1: Get repository configuration
+        let config_spinner = console.create_spinner("Fetching repository configuration...");
         match client.get_project_config(self.repository.as_str()).await {
             Ok(config) => {
-                info!(
-                    "Configuration retrieved for repository: {}",
-                    self.repository
-                );
+                console.finish_progress_success(&config_spinner, "Configuration retrieved");
+                info!("Configuration retrieved for repository: {}", self.repository);
 
+                // Step 2: Process repository
+                let process_spinner = console.create_spinner("Processing repository documents...");
                 let processor =
                     RepositoryProcessor::new(client.clone(), config, self.repository.clone());
 
-                match processor.process(true).await {
+                match processor.process(false).await { // Don't pass verbose to avoid duplicate output
                     Ok(result) => {
+                        console.finish_progress_success(&process_spinner, "Documents processed");
                         std::fs::create_dir_all(&output_dir)?;
 
                         // Filter fragments by type if specified
                         let fragments = if let Some(filter_type) = &self.fragment_type {
-                            result
+                            let filtered: Vec<_> = result
                                 .fragments
                                 .into_iter()
                                 .filter(|f| {
@@ -85,13 +96,19 @@ impl ExportFragmentsCommand {
                                         .to_lowercase()
                                         .contains(&filter_type.to_lowercase())
                                 })
-                                .collect()
+                                .collect();
+                            console.info(&format!("Filtered to {} fragments of type '{}'", filtered.len(), filter_type));
+                            filtered
                         } else {
                             result.fragments
                         };
 
+                        console.info(&format!("Exporting {} fragments in {:?} format", fragments.len(), self.format));
                         info!("Exporting {} fragments", fragments.len());
 
+                        // Step 3: Export fragments
+                        let export_spinner = console.create_spinner("Exporting fragments...");
+                        
                         match self.format {
                             OutputFormat::Files => {
                                 // Export each fragment to a file
@@ -125,6 +142,8 @@ impl ExportFragmentsCommand {
                                     )?;
                                 }
 
+                                console.finish_progress_success(&export_spinner, "Files exported");
+                                console.info(&format!("Fragments exported to: {}", output_dir.display()));
                                 info!("Fragments exported to {}", output_dir.display());
                             }
                             OutputFormat::Html => {
@@ -134,6 +153,9 @@ impl ExportFragmentsCommand {
                                 )?;
                                 let output_file = output_dir.join("fragments.html");
                                 std::fs::write(&output_file, html_document)?;
+                                
+                                console.finish_progress_success(&export_spinner, "HTML document exported");
+                                console.info(&format!("HTML document exported to: {}", output_file.display()));
                                 info!("HTML document exported to {}", output_file.display());
                             }
                             OutputFormat::Json => {
@@ -164,49 +186,51 @@ impl ExportFragmentsCommand {
                                     &output_file,
                                     serde_json::to_string_pretty(&export_data)?,
                                 )?;
+                                
+                                console.finish_progress_success(&export_spinner, "JSON document exported");
+                                console.info(&format!("JSON document exported to: {}", output_file.display()));
                                 info!("JSON document exported to {}", &output_file.display());
                             }
                         }
 
-                        // Handle compression if requested
+                        // Step 4: Handle compression if requested
                         if self.compress {
-                            self.compress_output(&output_dir)?;
+                            let compress_spinner = console.create_spinner("Compressing output...");
+                            match self.compress_output(&output_dir) {
+                                Ok(()) => {
+                                    console.finish_progress_success(&compress_spinner, "Output compressed");
+                                }
+                                Err(e) => {
+                                    console.finish_progress_error(&compress_spinner, "Compression failed");
+                                    console.warning(&format!("Failed to compress output: {}", e));
+                                }
+                            }
                         }
 
-                        info!(
-                            "Export completed successfully for repository: {}",
-                            self.repository
-                        );
+                        console.success(&format!("Export completed successfully for repository: {}", self.repository));
+                        info!("Export completed successfully for repository: {}", self.repository);
                         Ok(())
                     }
                     Err(e) => {
+                        console.finish_progress_error(&process_spinner, "Processing failed");
+                        console.error(&format!("Error processing repository {}: {}", self.repository, e));
                         tracing::error!("Error processing repository {}: {}", self.repository, e);
-                        eprintln!("Error processing repository {}: {}", self.repository, e);
-                        std::process::exit(1);
+                        return Err(AppError::InternalServerError(format!("Processing failed: {}", e)));
                     }
                 }
             }
             Err(GitHubError::ConfigFileNotFound(_)) => {
-                error!(
-                    "No configuration file found in repository: {}",
-                    self.repository
-                );
-                eprintln!(
-                    "No configuration file found in repository: {}",
-                    self.repository
-                );
-                std::process::exit(1);
+                console.finish_progress_error(&config_spinner, "Configuration not found");
+                console.error(&format!("No documents.toml configuration file found in repository: {}", self.repository));
+                console.info("Make sure the repository has a documents.toml file in its root directory");
+                error!("No configuration file found in repository: {}", self.repository);
+                return Err(AppError::InternalServerError("Configuration file not found".to_string()));
             }
             Err(e) => {
-                error!(
-                    "Error retrieving configuration for repository {}: {}",
-                    self.repository, e
-                );
-                eprintln!(
-                    "Error retrieving configuration for repository {}: {}",
-                    self.repository, e
-                );
-                std::process::exit(1);
+                console.finish_progress_error(&config_spinner, "Failed to fetch configuration");
+                console.error(&format!("Error retrieving configuration for repository {}: {}", self.repository, e));
+                error!("Error retrieving configuration for repository {}: {}", self.repository, e);
+                return Err(AppError::InternalServerError(format!("Failed to fetch configuration: {}", e)));
             }
         }
     }

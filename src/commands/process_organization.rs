@@ -1,7 +1,7 @@
 use crate::github::{Client, GitHubClient};
 use crate::processing::{RepositoryProcessor, OutputHandler};
 use crate::web::AppError;
-use crate::{OutputFormat, ProjectConfig};
+use crate::{Console, OutputFormat, ProjectConfig, RepoStatus};
 use clap::Args;
 use std::path::PathBuf;
 
@@ -19,10 +19,6 @@ pub struct ProcessOrganizationArgs {
     #[arg(long, value_enum, default_value = "files", help = "Output format")]
     pub format: OutputFormat,
 
-    /// Force reprocessing even if output exists
-    #[arg(long, help = "Force reprocessing even if output exists")]
-    pub force: bool,
-
     /// Verbose progress reporting
     #[arg(long, help = "Verbose progress reporting")]
     pub verbose: bool,
@@ -36,7 +32,6 @@ pub struct ProcessOrganizationArgs {
 pub struct ProcessOrganizationCommand {
     output: Option<PathBuf>,
     format: OutputFormat,
-    force: bool,
     verbose: bool,
 }
 
@@ -50,7 +45,6 @@ impl ProcessOrganizationCommand {
         Self {
             output: args.output,
             format: args.format,
-            force: args.force,
             verbose: args.verbose,
         }
     }
@@ -71,48 +65,52 @@ impl ProcessOrganizationCommand {
     ///
     /// * `Result<(), AppError>` - Ok if the command executed successfully, Err otherwise
     pub async fn execute(&self, client: &GitHubClient) -> Result<(), AppError> {
-        let _ = tracing_subscriber::fmt::try_init();
-        tracing::info!("Processing organization {} for repositories with documents.toml", client.organization);
+        let console = Console::new(self.verbose);
         
-        println!("Processing organization {} for repositories with documents.toml", client.organization);
+        // Header message
+        console.header(&format!("Processing organization {} for documents.toml repositories", client.organization));
         
-        // Use GraphQL to efficiently check all repositories at once for documents.toml
-        tracing::info!("Using GraphQL to check for documents.toml in all repositories");
+        // Step 1: Fetch repository list and configurations
+        let spinner = console.create_spinner("Fetching repository configurations from GitHub...");
+        
         let repo_results = client.batch_fetch_config_file_content().await
             .map_err(|e| AppError::InternalServerError(format!("GitHub API error: {}", e)))?;
         
         let total_repos = repo_results.len();
-        tracing::info!("Found {} repositories in the organization", total_repos);
+        let repos_with_config: Vec<_> = repo_results.iter().filter(|r| r.exists).collect();
+        let config_count = repos_with_config.len();
         
-        if self.verbose {
-            println!("Found {} repositories in the organization", total_repos);
+        console.finish_progress_success(&spinner, &format!("Found {} repositories ({} with documents.toml)", total_repos, config_count));
+        
+        if config_count == 0 {
+            console.warning("No repositories found with documents.toml configuration");
+            console.info("Make sure repositories have a documents.toml file in their root directory");
+            return Ok(());
         }
+        
+        // Step 2: Process repositories with configurations
+        let progress = console.create_process_progress(config_count as u64, "Processing repositories");
         
         let mut processed_count = 0;
         let mut error_count = 0;
+        let mut skipped_count = 0;
         
         // Process each repository that has a documents.toml config
         for repo_file in repo_results {
             if repo_file.exists {
-                let repo_name = format!("{}/{}", client.organization, repo_file.repo_name);
-                
-                if self.verbose {
-                    println!("Processing repository: {}", repo_name);
-                }
+                console.repo_status(&repo_file.repo_name, RepoStatus::Processing);
+                progress.inc(1);
 
                 // Parse the already-fetched configuration content
                 let config_content = repo_file.content.as_ref().unwrap();
                 if config_content.is_empty() {
-                    tracing::error!("Configuration file is empty for repository: {}", repo_name);
-                    eprintln!("Configuration file is empty for repository: {}", repo_name);
+                    console.repo_status(&repo_file.repo_name, RepoStatus::Error("Configuration file is empty".to_string()));
                     error_count += 1;
                     continue;
                 }
                 
                 match toml::from_str::<ProjectConfig>(config_content) {
                     Ok(config) => {
-                        tracing::info!("Successfully parsed configuration for repository: {}", repo_name);
-                        
                         // Create processor and run processing using shared infrastructure
                         let processor = RepositoryProcessor::new(
                             client.clone(), 
@@ -120,7 +118,17 @@ impl ProcessOrganizationCommand {
                             repo_file.repo_name.clone()
                         );
                         
-                        match processor.process(self.verbose).await {
+                        // Temporarily suspend progress bar to prevent log interference during processing
+                        let processing_result = progress.suspend(|| {
+                            // Use tokio::task::block_in_place to handle async code in suspend closure
+                            tokio::task::block_in_place(|| {
+                                tokio::runtime::Handle::current().block_on(async {
+                                    processor.process(false).await
+                                })
+                            })
+                        });
+                        
+                        match processing_result {
                             Ok(result) => {
                                 // Determine output directory for this repository
                                 let output_dir = self.output
@@ -131,50 +139,59 @@ impl ProcessOrganizationCommand {
                                 // Use shared OutputHandler for consistent output handling
                                 let output_handler = OutputHandler::new(
                                     output_dir,
-                                    self.format.clone(),
-                                    self.verbose,
+                                    self.format.clone()
                                 );
                                 
-                                if let Err(e) = output_handler.save_results(&result) {
-                                    tracing::error!("Error saving results for repository {}: {}", repo_name, e);
-                                    eprintln!("Error saving results for repository {}: {}", repo_name, e);
-                                    error_count += 1;
-                                } else {
-                                    processed_count += 1;
-                                    if self.verbose {
-                                        println!("✓ Successfully processed repository: {}", repo_name);
+                                match output_handler.save_results(&result) {
+                                    Ok(()) => {
+                                        console.repo_status(&repo_file.repo_name, RepoStatus::Success);
+                                        processed_count += 1;
+                                    }
+                                    Err(e) => {
+                                        console.repo_status(&repo_file.repo_name, RepoStatus::Error(format!("Failed to save results: {}", e)));
+                                        error_count += 1;
                                     }
                                 }
                             }
                             Err(e) => {
-                                tracing::error!("Error processing repository {}: {}", repo_name, e);
-                                eprintln!("Error processing repository {}: {}", repo_name, e);
+                                console.repo_status(&repo_file.repo_name, RepoStatus::Error(format!("Processing failed: {}", e)));
                                 error_count += 1;
                             }
                         }
                     }
                     Err(e) => {
-                        tracing::error!("Error parsing configuration for repository {}: {}", repo_name, e);
-                        eprintln!("Error parsing configuration for repository {}: {}", repo_name, e);
+                        console.repo_status(&repo_file.repo_name, RepoStatus::Error(format!("Invalid configuration: {}", e)));
                         error_count += 1;
                     }
                 }
-            } else if self.verbose {
-                println!("No documents.toml found in repository: {}", repo_file.repo_name);
+            } else {
+                console.repo_status(&repo_file.repo_name, RepoStatus::Skipped("No documents.toml found".to_string()));
+                skipped_count += 1;
             }
         }
         
-        // Print summary
-        println!("\nProcessing Summary:");
-        println!("  Total repositories in organization: {}", total_repos);
-        println!("  Repositories with documents.toml: {}", processed_count + error_count);
-        println!("  Successfully processed: {}", processed_count);
-        if error_count > 0 {
-            println!("  Failed to process: {}", error_count);
+        console.finish_progress_success(&progress, "Organization processing completed");
+        
+        // Summary
+        let summary_items = vec![
+            ("Total repositories", total_repos.to_string()),
+            ("With documents.toml", config_count.to_string()),
+            ("Successfully processed", processed_count.to_string()),
+            ("Failed to process", error_count.to_string()),
+            ("Skipped (no config)", skipped_count.to_string()),
+        ];
+        
+        console.summary("Processing Results", &summary_items);
+        
+        if processed_count > 0 {
+            let output_base = self.output.clone().unwrap_or_else(|| PathBuf::from("output"));
+            console.info(&format!("Results saved to: {}", output_base.display()));
         }
         
         if error_count > 0 {
-            tracing::warn!("Some repositories failed to process. Check logs for details.");
+            console.warning("Some repositories failed to process. Check logs for details.");
+        } else if processed_count > 0 {
+            console.success(&format!("Successfully processed {} repositories", processed_count));
         }
         
         Ok(())

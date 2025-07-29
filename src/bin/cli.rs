@@ -95,10 +95,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             command.execute(&github).await?
         }
         Some(Commands::HealthCheck(args)) => {
-            // TODO: Move this to health_checks module
+            use documents::Console;
+            let console = Console::new(false);
+            
             // Test authentication
-            println!("Authenticated as {}", github.current_user().await?);
-            println!("Using organization: {}", github.organization);
+            let spinner = console.create_spinner("Testing GitHub authentication...");
+            match github.current_user().await {
+                Ok(user) => {
+                    console.finish_progress_success(&spinner, "GitHub authentication successful");
+                    console.health_status("GitHub Authentication", true, Some(&format!("Authenticated as: {}", user)));
+                    console.health_status("GitHub Organization", true, Some(&format!("Using organization: {}", github.organization)));
+                }
+                Err(e) => {
+                    console.finish_progress_error(&spinner, "GitHub authentication failed");
+                    console.health_status("GitHub Authentication", false, Some(&format!("Error: {}", e)));
+                    return Err(e.into());
+                }
+            }
 
             health_check(args).await?;
         }
