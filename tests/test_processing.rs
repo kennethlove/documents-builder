@@ -139,11 +139,11 @@ impl Client for MockGitHubClient {
         Ok(result)
     }
 
-    async fn batch_check_file_exists(&self, file_path: &str) -> Result<HashMap<String, bool>, GitHubError> {
+    async fn batch_check_config_file_exists(&self) -> Result<HashMap<String, bool>, GitHubError> {
         let mut result = HashMap::new();
         
-        // For testing, we'll return that test-repo has the file if it exists in file_contents
-        let file_exists = self.file_contents.contains_key(file_path);
+        // For testing, we'll return that test-repo has the documents.toml configuration file if it exists in file_contents
+        let file_exists = self.file_contents.contains_key("documents.toml");
         result.insert("test-repo".to_string(), file_exists);
         
         Ok(result)

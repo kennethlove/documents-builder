@@ -62,9 +62,9 @@ impl ScanOrgCommand {
         
         println!("Scanning organization {} for repositories with documents.toml", client.organization);
         
-        // Use GraphQL to efficiently check all repositories at once for file existence
+        // Use GraphQL to efficiently check all repositories at once for documents.toml configuration file existence
         tracing::info!("Using GraphQL to check for documents.toml existence in all repositories");
-        let repo_results = client.batch_check_file_exists("documents.toml").await?;
+        let repo_results = client.batch_check_config_file_exists().await?;
         
         let total_repos = repo_results.len();
         tracing::info!("Found {} repositories in the organization", total_repos);

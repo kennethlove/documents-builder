@@ -87,20 +87,16 @@ pub trait Client {
         path: Option<&str>,
     ) -> Result<Vec<RepositoryFile>, GitHubError>;
     
-    /// Batch check multiple repositories for the existence of a specific file using GraphQL
+    /// Batch check multiple repositories for the existence of the documents.toml configuration file using GraphQL
     ///
     /// This method uses GitHub's GraphQL API to efficiently check multiple repositories
-    /// at once for the existence of a specific file, reducing the number of API calls.
-    ///
-    /// # Arguments
-    ///
-    /// * `file_path` - The path of the file to check for in each repository
+    /// at once for the existence of the documents.toml configuration file, reducing the number of API calls.
     ///
     /// # Returns
     ///
     /// * `Result<HashMap<String, bool>, GitHubError>` - A map of repository names to a boolean
-    ///   indicating whether the file exists in that repository
-    async fn batch_check_file_exists(&self, file_path: &str) -> Result<HashMap<String, bool>, GitHubError>;
+    ///   indicating whether the documents.toml configuration file exists in that repository
+    async fn batch_check_config_file_exists(&self) -> Result<HashMap<String, bool>, GitHubError>;
     
     /// Batch check multiple repositories for the existence of a specific file and fetch its content using GraphQL
     ///
@@ -307,13 +303,13 @@ impl Client for GitHubClient {
         Ok(files)
     }
 
-    async fn batch_check_file_exists(&self, file_path: &str) -> Result<HashMap<String, bool>, GitHubError> {
+    async fn batch_check_config_file_exists(&self) -> Result<HashMap<String, bool>, GitHubError> {
         let mut result = HashMap::new();
         let mut cursor: Option<String> = None;
 
         // Handle pagination to get all repositories
         loop {
-            // Create the GraphQL query with a proper file path
+            // Create the GraphQL query to check for documents.toml configuration file
             let query = format!(
                 r#"
                 query {{
@@ -325,7 +321,7 @@ impl Client for GitHubClient {
                       }}
                       nodes {{
                         name
-                        object(expression: "HEAD:{file_path}") {{
+                        object(expression: "HEAD:documents.toml") {{
                           ... on Blob {{
                             id
                           }}
@@ -339,8 +335,7 @@ impl Client for GitHubClient {
                 cursor = match &cursor {
                     Some(c) => format!("\"{}\"", c),
                     None => "null".to_string()
-                },
-                file_path = file_path
+                }
             );
 
             let query = serde_json::json!({"query": &query});
@@ -613,15 +608,11 @@ pub mod tests {
             Ok(result)
         }
 
-        async fn batch_check_file_exists(&self, file_path: &str) -> Result<HashMap<String, bool>, GitHubError> {
+        async fn batch_check_config_file_exists(&self) -> Result<HashMap<String, bool>, GitHubError> {
             let mut result = HashMap::new();
 
-            // For testing, we'll return that test-repo has the file if it's documents.toml
-            if file_path == "documents.toml" {
-                result.insert("test-repo".to_string(), true);
-            } else {
-                result.insert("test-repo".to_string(), false);
-            }
+            // For testing, we'll return that test-repo has the documents.toml configuration file
+            result.insert("test-repo".to_string(), true);
 
             Ok(result)
         }
