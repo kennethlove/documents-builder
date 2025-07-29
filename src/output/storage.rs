@@ -301,6 +301,7 @@ pub struct StorageManager {
     storage: Box<dyn Storage>,
 }
 
+#[allow(dead_code)]
 impl StorageManager {
     pub fn new(config: OutputConfig) -> Result<Self> {
         let storage: Box<dyn Storage> = match config.storage_type {

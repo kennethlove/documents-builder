@@ -69,6 +69,7 @@ pub struct CollectionMetadata {
     pub processing_duration: Option<std::time::Duration>,
 }
 
+#[allow(dead_code)]
 impl Fragment {
     pub fn new(
         id: String,
@@ -186,6 +187,7 @@ impl Fragment {
     }
 }
 
+#[allow(dead_code)]
 impl FragmentCollection {
     pub fn new(repository: String, fragments: Vec<Fragment>) -> Self {
         let now = Utc::now();
