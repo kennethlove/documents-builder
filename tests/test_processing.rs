@@ -3,7 +3,7 @@
 // These tests use mockito to mock the GitHub client's behavior.
 
 use async_trait::async_trait;
-use documents::github::{Client, GitHubClient, GitHubError, RepositoryFile};
+use documents::github::{Client, GitHubClient, GitHubError, RepositoryFile, RepositoryFileContent};
 use documents::processing::RepositoryProcessor;
 use documents::processing::{DocumentProcessingPipeline, ProcessingContext};
 use documents::{DocumentConfig, ProjectConfig, ProjectDetails};
@@ -136,6 +136,36 @@ impl Client for MockGitHubClient {
             }
         }
 
+        Ok(result)
+    }
+
+    async fn batch_check_file_exists(&self, file_path: &str) -> Result<HashMap<String, bool>, GitHubError> {
+        let mut result = HashMap::new();
+        
+        // For testing, we'll return that test-repo has the file if it exists in file_contents
+        let file_exists = self.file_contents.contains_key(file_path);
+        result.insert("test-repo".to_string(), file_exists);
+        
+        Ok(result)
+    }
+    
+    async fn batch_check_file_content(&self, file_path: &str) -> Result<Vec<RepositoryFileContent>, GitHubError> {
+        let mut result = Vec::new();
+        
+        // For testing, check if the file exists in file_contents and return appropriate result
+        let file_exists = self.file_contents.contains_key(file_path);
+        let content = if file_exists {
+            self.file_contents.get(file_path).cloned()
+        } else {
+            None
+        };
+        
+        result.push(RepositoryFileContent {
+            repo_name: "test-repo".to_string(),
+            exists: file_exists,
+            content,
+        });
+        
         Ok(result)
     }
 }

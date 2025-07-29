@@ -3,7 +3,9 @@ use documents::Config;
 use documents::commands::export_fragments::{ExportFragmentsArgs, ExportFragmentsCommand};
 use documents::commands::health_checks::{HealthArgs, run as health_check};
 use documents::commands::list_all::ListAllCommand;
+use documents::commands::process_org::{ProcessOrgArgs, ProcessOrgCommand};
 use documents::commands::process_repository::{ProcessRepositoryArgs, ProcessRepositoryCommand};
+use documents::commands::scan_org::{ScanOrgArgs, ScanOrgCommand};
 use documents::commands::serve_webhook::{ServeWebhookArgs, ServeWebhookCommand};
 use documents::commands::validate_repo_config::{ValidateConfigArgs, ValidateConfigCommand};
 use documents::github::{Client, GitHubClient};
@@ -22,7 +24,11 @@ struct Cli {
 enum Commands {
     ExportFragments(ExportFragmentsArgs),
     ListAll,
-    ProcessRepo(ProcessRepositoryArgs),
+    /// Process all repositories in an organization for documents.toml configuration files with content
+    ProcessOrganization(ProcessOrgArgs),
+    ProcessRepository(ProcessRepositoryArgs),
+    /// Scan all repositories in an organization for documents.toml configuration files
+    ScanOrganization(ScanOrgArgs),
     Serve(ServeWebhookArgs),
     ValidateConfig(ValidateConfigArgs),
     HealthCheck(HealthArgs),
@@ -37,7 +43,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Initialize logging
     let log_level = match &cli.command {
         Some(Commands::Serve(ServeWebhookArgs { log_level, .. })) => log_level.clone(),
-        Some(Commands::ProcessRepo(ProcessRepositoryArgs { verbose: true, .. })) => {
+        Some(Commands::ProcessRepository(ProcessRepositoryArgs { verbose: true, .. })) => {
             "debug".to_string()
         }
         _ => "info".to_string(),
@@ -69,8 +75,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Some(Commands::ListAll) => {
             ListAllCommand::execute(&github).await?;
         }
-        Some(Commands::ProcessRepo(args)) => {
+        Some(Commands::ProcessOrganization(args)) => {
+            let command = ProcessOrgCommand::new(args);
+            command.execute(&github).await?;
+        }
+        Some(Commands::ProcessRepository(args)) => {
             let command = ProcessRepositoryCommand::new(args);
+            command.execute(&github).await?;
+        }
+        Some(Commands::ScanOrganization(args)) => {
+            let command = ScanOrgCommand::new(args);
             command.execute(&github).await?;
         }
         Some(Commands::Serve(args)) => {
