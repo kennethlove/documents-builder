@@ -1,7 +1,7 @@
 use crate::github::{Client, GitHubClient};
 use crate::processing::{RepositoryProcessor, OutputHandler};
 use crate::web::AppError;
-use crate::OutputFormat;
+use crate::{OutputFormat, ProjectConfig};
 use clap::Args;
 use std::path::PathBuf;
 
@@ -100,10 +100,18 @@ impl ProcessOrganizationCommand {
                     println!("Processing repository: {}", repo_name);
                 }
 
-                // Get the configuration for this repository
-                match client.get_project_config(&repo_name).await {
+                // Parse the already-fetched configuration content
+                let config_content = repo_file.content.as_ref().unwrap();
+                if config_content.is_empty() {
+                    tracing::error!("Configuration file is empty for repository: {}", repo_name);
+                    eprintln!("Configuration file is empty for repository: {}", repo_name);
+                    error_count += 1;
+                    continue;
+                }
+                
+                match toml::from_str::<ProjectConfig>(config_content) {
                     Ok(config) => {
-                        tracing::info!("Found configuration for repository: {}", repo_name);
+                        tracing::info!("Successfully parsed configuration for repository: {}", repo_name);
                         
                         // Create processor and run processing using shared infrastructure
                         let processor = RepositoryProcessor::new(
@@ -146,8 +154,8 @@ impl ProcessOrganizationCommand {
                         }
                     }
                     Err(e) => {
-                        tracing::error!("Error retrieving configuration for repository {}: {}", repo_name, e);
-                        eprintln!("Error retrieving configuration for repository {}: {}", repo_name, e);
+                        tracing::error!("Error parsing configuration for repository {}: {}", repo_name, e);
+                        eprintln!("Error parsing configuration for repository {}: {}", repo_name, e);
                         error_count += 1;
                     }
                 }
