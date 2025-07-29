@@ -117,7 +117,7 @@ impl ProcessOrganizationCommand {
                         let processor = RepositoryProcessor::new(
                             client.clone(), 
                             config, 
-                            repo_name.clone()
+                            repo_file.repo_name.clone()
                         );
                         
                         match processor.process(self.verbose).await {

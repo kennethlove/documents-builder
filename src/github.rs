@@ -374,7 +374,7 @@ impl Client for GitHubClient {
                     .ok_or_else(|| GitHubError::RequestFailed("Invalid repository name in response".to_string()))?;
 
                 // Check if the file exists (object will be null if file doesn't exist)
-                let file_exists = repo["object"]["id"].is_string();
+                let file_exists = !repo["object"].is_null();
                 result.insert(repo_name.to_string(), file_exists);
             }
 
@@ -453,7 +453,7 @@ impl Client for GitHubClient {
             let file_object = &repository[&file_key];
             
             // Check if the file exists (object will be null if file doesn't exist)
-            let content = if file_object["id"].is_string() {
+            let content = if !file_object.is_null() {
                 file_object["text"].as_str().map(|s| s.to_string())
             } else {
                 None
@@ -522,7 +522,7 @@ impl Client for GitHubClient {
                     .to_string();
 
                 // Check if the file exists (object will be null if file doesn't exist)
-                let file_exists = repo["object"]["id"].is_string();
+                let file_exists = !repo["object"].is_null();
 
                 // Get the file content if it exists
                 let content = if file_exists {
