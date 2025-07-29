@@ -49,7 +49,6 @@ processing, and basic documentation serving with search capabilities.
 - [x] Add `scan-organization` command for full organization scanning
 - [x] Add `process-organization` command for full organization processing
 - [x] Add `process-repository <repository-name>` command for single repository processing
-- [ ] Add `search <query>` command for testing search functionality
 - [x] Add `health-check` command for system health and processing status
 - [x] Add `validate-repository-configuration <repository-name>` command for testing repository configurations
 - [ ] Implement progress bars and better user feedback for all commands
@@ -73,8 +72,7 @@ processing, and basic documentation serving with search capabilities.
 
 - [ ] Implement GitHub API client with rate limiting
 - [ ] Create organization repository enumeration
-- [ ] Add repository filtering (public/private, archived, fork status)
-- [ ] Implement `documents.toml` detection across all repositories
+- [x] Implement `documents.toml` detection across all repositories
 - [ ] Add repository metadata extraction (description, topics, language)
 - [ ] Create repository access permission validation
 
@@ -109,7 +107,7 @@ auto_title_from_filename = true
 
 **Priority: Critical**
 
-- [ ] Implement markdown file fetching from GitHub API
+- [x] Implement markdown file fetching from GitHub API
 - [ ] Add frontmatter parsing (YAML/TOML) for metadata extraction
 - [ ] Create markdown content preprocessing:
     - Link normalization
