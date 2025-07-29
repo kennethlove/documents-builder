@@ -7,7 +7,7 @@ use documents::commands::process_organization::{ProcessOrganizationArgs, Process
 use documents::commands::process_repository::{ProcessRepositoryArgs, ProcessRepositoryCommand};
 use documents::commands::scan_organization::{ScanOrgArgs, ScanOrgCommand};
 use documents::commands::serve_webhook::{ServeWebhookArgs, ServeWebhookCommand};
-use documents::commands::validate_repo_config::{ValidateConfigArgs, ValidateConfigCommand};
+use documents::commands::validate_repository_configuration::{ValidateConfigArgs, ValidateConfigCommand};
 use documents::github::{Client, GitHubClient};
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::layer::SubscriberExt;
