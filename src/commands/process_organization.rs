@@ -5,12 +5,12 @@ use crate::OutputFormat;
 use clap::Args;
 use std::path::PathBuf;
 
-/// Arguments for the process-org command
+/// Arguments for the process-organization command
 /// 
 /// This command processes all repositories in the configured organization that have
 /// a documents.toml configuration file, generating document fragments for each.
 #[derive(Args, Debug)]
-pub struct ProcessOrgArgs {
+pub struct ProcessOrganizationArgs {
     /// Output directory for generated fragments
     #[arg(long, short, help = "Output directory for generated fragments")]
     pub output: Option<PathBuf>,
@@ -33,20 +33,20 @@ pub struct ProcessOrgArgs {
 /// This command efficiently searches through all repositories in the configured GitHub organization,
 /// identifies those that have a documents.toml configuration file, and processes each repository
 /// to generate document fragments using the shared processing infrastructure.
-pub struct ProcessOrgCommand {
+pub struct ProcessOrganizationCommand {
     output: Option<PathBuf>,
     format: OutputFormat,
     force: bool,
     verbose: bool,
 }
 
-impl ProcessOrgCommand {
-    /// Creates a new instance of the ProcessOrgCommand
+impl ProcessOrganizationCommand {
+    /// Creates a new instance of the ProcessOrganizationCommand
     ///
     /// # Arguments
     ///
-    /// * `args` - The command line arguments for the process-org command
-    pub fn new(args: ProcessOrgArgs) -> Self {
+    /// * `args` - The command line arguments for the process-organization command
+    pub fn new(args: ProcessOrganizationArgs) -> Self {
         Self {
             output: args.output,
             format: args.format,

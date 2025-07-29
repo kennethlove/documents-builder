@@ -3,7 +3,7 @@ use documents::Config;
 use documents::commands::export_fragments::{ExportFragmentsArgs, ExportFragmentsCommand};
 use documents::commands::health_checks::{HealthArgs, run as health_check};
 use documents::commands::list_all::ListAllCommand;
-use documents::commands::process_organization::{ProcessOrgArgs, ProcessOrgCommand};
+use documents::commands::process_organization::{ProcessOrganizationArgs, ProcessOrganizationCommand};
 use documents::commands::process_repository::{ProcessRepositoryArgs, ProcessRepositoryCommand};
 use documents::commands::scan_organization::{ScanOrgArgs, ScanOrgCommand};
 use documents::commands::serve_webhook::{ServeWebhookArgs, ServeWebhookCommand};
@@ -25,7 +25,7 @@ enum Commands {
     ExportFragments(ExportFragmentsArgs),
     ListAll,
     /// Process all repositories in an organization for documents.toml configuration files with content
-    ProcessOrganization(ProcessOrgArgs),
+    ProcessOrganization(ProcessOrganizationArgs),
     ProcessRepository(ProcessRepositoryArgs),
     /// Scan all repositories in an organization for documents.toml configuration files
     ScanOrganization(ScanOrgArgs),
@@ -76,7 +76,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             ListAllCommand::execute(&github).await?;
         }
         Some(Commands::ProcessOrganization(args)) => {
-            let command = ProcessOrgCommand::new(args);
+            let command = ProcessOrganizationCommand::new(args);
             command.execute(&github).await?;
         }
         Some(Commands::ProcessRepository(args)) => {
