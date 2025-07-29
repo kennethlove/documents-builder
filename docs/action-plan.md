@@ -47,11 +47,11 @@ processing, and basic documentation serving with search capabilities.
 
 - [x] Basic CLI structure with `scan`, `list-all`, and `serve` commands
 - [x] Add `scan-organization` command for full organization scanning
-- [ ] Add `process-organization` command for full organization processing
-- [ ] Add `process-repository <repository-name>` command for single repository processing
+- [x] Add `process-organization` command for full organization processing
+- [x] Add `process-repository <repository-name>` command for single repository processing
 - [ ] Add `search <query>` command for testing search functionality
 - [x] Add `health-check` command for system health and processing status
-- [ ] Add `validate-repo-config <repo-name>` command for testing repository configurations
+- [ ] Add `validate-repository-configuration <repository-name>` command for testing repository configurations
 - [ ] Implement progress bars and better user feedback for all commands
 
 ### 1.3 Configuration Management
