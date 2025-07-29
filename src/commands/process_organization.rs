@@ -1,37 +1,43 @@
-use crate::github::{Client, GitHubClient, GitHubError};
+use crate::github::{Client, GitHubClient};
+use crate::processing::{RepositoryProcessor, OutputHandler};
+use crate::web::AppError;
+use crate::OutputFormat;
 use clap::Args;
+use std::path::PathBuf;
 
 /// Arguments for the process-org command
 /// 
-/// This command processes all repositories in the configured organization and identifies
-/// those that have a documents.toml configuration file in their root directory,
-/// optionally showing the file content.
+/// This command processes all repositories in the configured organization that have
+/// a documents.toml configuration file, generating document fragments for each.
 #[derive(Args, Debug)]
 pub struct ProcessOrgArgs {
-    /// Whether to show verbose output
-    #[arg(short, long, help = "Show verbose output including repositories without the config file")]
-    verbose: bool,
-    
-    /// Whether to show file content
-    #[arg(short, long, help = "Show the content of the documents.toml file when found")]
-    show_content: bool,
+    /// Output directory for generated fragments
+    #[arg(long, short, help = "Output directory for generated fragments")]
+    pub output: Option<PathBuf>,
+
+    /// Output format (files, json, html)
+    #[arg(long, value_enum, default_value = "files", help = "Output format")]
+    pub format: OutputFormat,
+
+    /// Force reprocessing even if output exists
+    #[arg(long, help = "Force reprocessing even if output exists")]
+    pub force: bool,
+
+    /// Verbose progress reporting
+    #[arg(long, help = "Verbose progress reporting")]
+    pub verbose: bool,
 }
 
-/// Command to process all repositories in an organization for documents.toml configuration files
+/// Command to process all repositories in an organization that have documents.toml configuration files
 ///
-/// This command efficiently searches through all repositories in the configured GitHub organization
-/// and identifies those that have a documents.toml configuration file in their root directory.
-/// It provides a summary of the results and can optionally show verbose output and file content.
-///
-/// The implementation uses GitHub's GraphQL API to check multiple repositories at once and fetch content,
-/// which significantly reduces the number of API calls and improves performance compared
-/// to checking each repository individually.
+/// This command efficiently searches through all repositories in the configured GitHub organization,
+/// identifies those that have a documents.toml configuration file, and processes each repository
+/// to generate document fragments using the shared processing infrastructure.
 pub struct ProcessOrgCommand {
-    /// Whether to show verbose output
+    output: Option<PathBuf>,
+    format: OutputFormat,
+    force: bool,
     verbose: bool,
-    
-    /// Whether to show file content
-    show_content: bool,
 }
 
 impl ProcessOrgCommand {
@@ -42,22 +48,20 @@ impl ProcessOrgCommand {
     /// * `args` - The command line arguments for the process-org command
     pub fn new(args: ProcessOrgArgs) -> Self {
         Self {
+            output: args.output,
+            format: args.format,
+            force: args.force,
             verbose: args.verbose,
-            show_content: args.show_content,
         }
     }
 
     /// Executes the process-org command
     ///
     /// This method:
-    /// 1. Uses GitHub's GraphQL API to efficiently check all repositories at once for documents.toml and fetch content
-    /// 2. Processes the results to identify repositories with the config file
-    /// 3. Prints the repositories that have the config file
-    /// 4. Optionally displays the file content if requested
-    /// 5. Provides a summary of how many repositories were found with the config file
-    ///
-    /// The implementation uses a single GraphQL query to check multiple repositories at once and fetch file content,
-    /// which significantly reduces the number of API calls compared to checking and fetching separately.
+    /// 1. Uses GitHub's GraphQL API to find repositories with documents.toml configuration files
+    /// 2. For each repository with a config, processes it using the shared RepositoryProcessor
+    /// 3. Saves results using the shared OutputHandler for consistent output
+    /// 4. Provides progress reporting and error handling for batch processing
     ///
     /// # Arguments
     ///
@@ -65,16 +69,17 @@ impl ProcessOrgCommand {
     ///
     /// # Returns
     ///
-    /// * `Result<(), GitHubError>` - Ok if the command executed successfully, Err otherwise
-    pub async fn execute(&self, client: &GitHubClient) -> Result<(), GitHubError> {
+    /// * `Result<(), AppError>` - Ok if the command executed successfully, Err otherwise
+    pub async fn execute(&self, client: &GitHubClient) -> Result<(), AppError> {
         let _ = tracing_subscriber::fmt::try_init();
         tracing::info!("Processing organization {} for repositories with documents.toml", client.organization);
         
         println!("Processing organization {} for repositories with documents.toml", client.organization);
         
-        // Use GraphQL to efficiently check all repositories at once and fetch content
-        tracing::info!("Using GraphQL to check for documents.toml and fetch content in all repositories");
-        let repo_results = client.batch_check_file_content("documents.toml").await?;
+        // Use GraphQL to efficiently check all repositories at once for documents.toml
+        tracing::info!("Using GraphQL to check for documents.toml in all repositories");
+        let repo_results = client.batch_check_file_content("documents.toml").await
+            .map_err(|e| AppError::InternalServerError(format!("GitHub API error: {}", e)))?;
         
         let total_repos = repo_results.len();
         tracing::info!("Found {} repositories in the organization", total_repos);
@@ -83,25 +88,67 @@ impl ProcessOrgCommand {
             println!("Found {} repositories in the organization", total_repos);
         }
         
-        let mut found_count = 0;
+        let mut processed_count = 0;
+        let mut error_count = 0;
         
-        // Process the results
+        // Process each repository that has a documents.toml config
         for repo_file in repo_results {
             if repo_file.exists {
-                println!("Found documents.toml in repository: {}", repo_file.repo_name);
-                found_count += 1;
+                let repo_name = format!("{}/{}", client.organization, repo_file.repo_name);
                 
-                // Display file content if requested
-                if self.show_content {
-                    if let Some(content) = &repo_file.content {
-                        println!("  Content:");
-                        for line in content.lines() {
-                            println!("    {}", line);
+                if self.verbose {
+                    println!("Processing repository: {}", repo_name);
+                }
+
+                // Get the configuration for this repository
+                match client.get_project_config(&repo_name).await {
+                    Ok(config) => {
+                        tracing::info!("Found configuration for repository: {}", repo_name);
+                        
+                        // Create processor and run processing using shared infrastructure
+                        let processor = RepositoryProcessor::new(
+                            client.clone(), 
+                            config, 
+                            repo_name.clone()
+                        );
+                        
+                        match processor.process(self.verbose).await {
+                            Ok(result) => {
+                                // Determine output directory for this repository
+                                let output_dir = self.output
+                                    .clone()
+                                    .unwrap_or_else(|| PathBuf::from("output"))
+                                    .join(&repo_file.repo_name);
+                                
+                                // Use shared OutputHandler for consistent output handling
+                                let output_handler = OutputHandler::new(
+                                    output_dir,
+                                    self.format.clone(),
+                                    self.verbose,
+                                );
+                                
+                                if let Err(e) = output_handler.save_results(&result) {
+                                    tracing::error!("Error saving results for repository {}: {}", repo_name, e);
+                                    eprintln!("Error saving results for repository {}: {}", repo_name, e);
+                                    error_count += 1;
+                                } else {
+                                    processed_count += 1;
+                                    if self.verbose {
+                                        println!("✓ Successfully processed repository: {}", repo_name);
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                tracing::error!("Error processing repository {}: {}", repo_name, e);
+                                eprintln!("Error processing repository {}: {}", repo_name, e);
+                                error_count += 1;
+                            }
                         }
-                        println!();
-                    } else {
-                        println!("  (Content not available)");
-                        println!();
+                    }
+                    Err(e) => {
+                        tracing::error!("Error retrieving configuration for repository {}: {}", repo_name, e);
+                        eprintln!("Error retrieving configuration for repository {}: {}", repo_name, e);
+                        error_count += 1;
                     }
                 }
             } else if self.verbose {
@@ -109,7 +156,18 @@ impl ProcessOrgCommand {
             }
         }
         
-        println!("\nSummary: Found {} repositories with documents.toml configuration", found_count);
+        // Print summary
+        println!("\nProcessing Summary:");
+        println!("  Total repositories in organization: {}", total_repos);
+        println!("  Repositories with documents.toml: {}", processed_count + error_count);
+        println!("  Successfully processed: {}", processed_count);
+        if error_count > 0 {
+            println!("  Failed to process: {}", error_count);
+        }
+        
+        if error_count > 0 {
+            tracing::warn!("Some repositories failed to process. Check logs for details.");
+        }
         
         Ok(())
     }
