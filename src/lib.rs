@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 pub mod commands;
 pub mod config;
+pub mod console;
 pub mod database;
 pub mod github;
 pub mod output;
@@ -11,6 +12,7 @@ pub mod processing;
 pub mod web;
 
 pub use config::{Config, ConfigError};
+pub use console::{Console, RepoStatus};
 pub use database::{Database, DatabaseError};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

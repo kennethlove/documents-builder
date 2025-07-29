@@ -1,4 +1,5 @@
 use crate::github::{Client, GitHubClient, GitHubError};
+use crate::Console;
 use clap::Args;
 
 /// Arguments for the scan-org command
@@ -57,35 +58,58 @@ impl ScanOrgCommand {
     ///
     /// * `Result<(), GitHubError>` - Ok if the command executed successfully, Err otherwise
     pub async fn execute(&self, client: &GitHubClient) -> Result<(), GitHubError> {
-        let _ = tracing_subscriber::fmt::try_init();
-        tracing::info!("Scanning organization {} for repositories with documents.toml", client.organization);
+        let console = Console::new(self.verbose);
         
-        println!("Scanning organization {} for repositories with documents.toml", client.organization);
+        // Header message
+        console.header(&format!("Scanning organization {} for documents.toml files", client.organization));
+        
+        // Create spinner for initial API call
+        let spinner = console.create_spinner("Fetching repository list from GitHub...");
         
         // Use GraphQL to efficiently check all repositories at once for documents.toml configuration file existence
-        tracing::info!("Using GraphQL to check for documents.toml existence in all repositories");
         let repo_results = client.batch_check_config_file_exists().await?;
         
         let total_repos = repo_results.len();
-        tracing::info!("Found {} repositories in the organization", total_repos);
         
-        if self.verbose {
-            println!("Found {} repositories in the organization", total_repos);
-        }
+        console.finish_progress_success(&spinner, &format!("Found {} repositories in organization", total_repos));
+        
+        // Create progress bar for scanning
+        let progress = console.create_scan_progress(total_repos as u64, "Checking for documents.toml files");
         
         let mut found_count = 0;
+        let mut found_repos = Vec::new();
         
         // Process the results
         for (repo_name, file_exists) in repo_results {
+            progress.inc(1);
+            
             if file_exists {
-                println!("Found documents.toml in repository: {}", repo_name);
+                found_repos.push(repo_name.clone());
                 found_count += 1;
-            } else if self.verbose {
-                println!("No documents.toml found in repository: {}", repo_name);
+                console.verbose(&format!("✓ Found documents.toml in: {}", repo_name));
+            } else {
+                console.verbose(&format!("✗ No documents.toml in: {}", repo_name));
             }
         }
         
-        println!("\nSummary: Found {} repositories with documents.toml configuration", found_count);
+        console.finish_progress_success(&progress, "Scan completed");
+        
+        // Display found repositories
+        if found_count > 0 {
+            console.info("Repositories with documents.toml configuration:");
+            for repo in &found_repos {
+                println!("  • {}", repo);
+            }
+        } else {
+            console.warning("No repositories found with documents.toml configuration");
+        }
+        
+        // Summary
+        console.summary("Scan Results", &[
+            ("Total repositories", total_repos.to_string()),
+            ("With documents.toml", found_count.to_string()),
+            ("Without documents.toml", (total_repos - found_count).to_string()),
+        ]);
         
         Ok(())
     }

@@ -160,13 +160,6 @@ impl RepositoryProcessor {
             fragments,
         };
 
-        info!(
-            "Completed processing for {}: {} files, {} fragments generated in {}ms",
-            self.repository,
-            result.file_processed,
-            result.fragments_generated,
-            result.processing_time_ms
-        );
 
         Ok(result)
     }
@@ -205,6 +198,7 @@ impl RepositoryProcessor {
         Ok(discovered_files)
     }
 
+    #[allow(dead_code)]
     async fn process_markdown_file(
         &self,
         file_path: &str,
