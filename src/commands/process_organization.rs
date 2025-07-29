@@ -78,7 +78,7 @@ impl ProcessOrgCommand {
         
         // Use GraphQL to efficiently check all repositories at once for documents.toml
         tracing::info!("Using GraphQL to check for documents.toml in all repositories");
-        let repo_results = client.batch_check_file_content("documents.toml").await
+        let repo_results = client.batch_fetch_config_file_content().await
             .map_err(|e| AppError::InternalServerError(format!("GitHub API error: {}", e)))?;
         
         let total_repos = repo_results.len();

@@ -98,21 +98,17 @@ pub trait Client {
     ///   indicating whether the documents.toml configuration file exists in that repository
     async fn batch_check_config_file_exists(&self) -> Result<HashMap<String, bool>, GitHubError>;
     
-    /// Batch check multiple repositories for the existence of a specific file and fetch its content using GraphQL
+    /// Batch fetch documents.toml configuration file content from multiple repositories using GraphQL
     ///
     /// This method uses GitHub's GraphQL API to efficiently check multiple repositories
-    /// at once for the existence of a specific file and fetch its content if it exists,
+    /// at once for the existence of the documents.toml configuration file and fetch its content if it exists,
     /// reducing the number of API calls compared to checking and fetching separately.
-    ///
-    /// # Arguments
-    ///
-    /// * `file_path` - The path of the file to check for and fetch from each repository
     ///
     /// # Returns
     ///
     /// * `Result<Vec<RepositoryFileContent>, GitHubError>` - A vector of repository file content information
-    ///   including repository name, whether the file exists, and the file content if it exists
-    async fn batch_check_file_content(&self, file_path: &str) -> Result<Vec<RepositoryFileContent>, GitHubError>;
+    ///   including repository name, whether the documents.toml file exists, and the file content if it exists
+    async fn batch_fetch_config_file_content(&self) -> Result<Vec<RepositoryFileContent>, GitHubError>;
 }
 
 #[derive(Clone, Debug)]
@@ -380,13 +376,13 @@ impl Client for GitHubClient {
         Ok(result)
     }
 
-    async fn batch_check_file_content(&self, file_path: &str) -> Result<Vec<RepositoryFileContent>, GitHubError> {
+    async fn batch_fetch_config_file_content(&self) -> Result<Vec<RepositoryFileContent>, GitHubError> {
         let mut result = Vec::new();
         let mut cursor: Option<String> = None;
 
         // Handle pagination to get all repositories
         loop {
-            // Create the GraphQL query with a proper file path, including text content
+            // Create the GraphQL query for documents.toml file, including text content
             let query = format!(
                 r#"
                 query {{
@@ -398,7 +394,7 @@ impl Client for GitHubClient {
                       }}
                       nodes {{
                         name
-                        object(expression: "HEAD:{file_path}") {{
+                        object(expression: "HEAD:documents.toml") {{
                           ... on Blob {{
                             id
                             text
@@ -413,8 +409,7 @@ impl Client for GitHubClient {
                 cursor = match &cursor {
                     Some(c) => format!("\"{}\"", c),
                     None => "null".to_string()
-                },
-                file_path = file_path
+                }
             );
 
             let query = serde_json::json!({"query": &query});
@@ -617,23 +612,15 @@ pub mod tests {
             Ok(result)
         }
 
-        async fn batch_check_file_content(&self, file_path: &str) -> Result<Vec<RepositoryFileContent>, GitHubError> {
+        async fn batch_fetch_config_file_content(&self) -> Result<Vec<RepositoryFileContent>, GitHubError> {
             let mut result = Vec::new();
 
-            // For testing, we'll return that test-repo has the file if it's documents.toml
-            if file_path == "documents.toml" {
-                result.push(RepositoryFileContent {
-                    repo_name: "test-repo".to_string(),
-                    exists: true,
-                    content: Some("[project]\nname = \"Test Project\"\ndescription = \"A test project\"".to_string()),
-                });
-            } else {
-                result.push(RepositoryFileContent {
-                    repo_name: "test-repo".to_string(),
-                    exists: false,
-                    content: None,
-                });
-            }
+            // For testing, we'll return that test-repo has the documents.toml configuration file
+            result.push(RepositoryFileContent {
+                repo_name: "test-repo".to_string(),
+                exists: true,
+                content: Some("[project]\nname = \"Test Project\"\ndescription = \"A test project\"".to_string()),
+            });
 
             Ok(result)
         }
@@ -644,10 +631,10 @@ pub mod tests {
         use super::*;
 
         #[tokio::test]
-        async fn test_batch_check_file_content_existing_file() {
+        async fn test_batch_fetch_config_file_content() {
             let client = MockGitHubClient::new();
             
-            let results = client.batch_check_file_content("documents.toml").await.unwrap();
+            let results = client.batch_fetch_config_file_content().await.unwrap();
             
             assert_eq!(results.len(), 1);
             assert_eq!(results[0].repo_name, "test-repo");
@@ -656,18 +643,6 @@ pub mod tests {
             
             let content = results[0].content.as_ref().unwrap();
             assert!(content.contains("Test Project"));
-        }
-
-        #[tokio::test]
-        async fn test_batch_check_file_content_nonexistent_file() {
-            let client = MockGitHubClient::new();
-            
-            let results = client.batch_check_file_content("nonexistent.toml").await.unwrap();
-            
-            assert_eq!(results.len(), 1);
-            assert_eq!(results[0].repo_name, "test-repo");
-            assert_eq!(results[0].exists, false);
-            assert!(results[0].content.is_none());
         }
     }
 }

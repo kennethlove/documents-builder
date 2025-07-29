@@ -149,13 +149,13 @@ impl Client for MockGitHubClient {
         Ok(result)
     }
     
-    async fn batch_check_file_content(&self, file_path: &str) -> Result<Vec<RepositoryFileContent>, GitHubError> {
+    async fn batch_fetch_config_file_content(&self) -> Result<Vec<RepositoryFileContent>, GitHubError> {
         let mut result = Vec::new();
         
-        // For testing, check if the file exists in file_contents and return appropriate result
-        let file_exists = self.file_contents.contains_key(file_path);
+        // For testing, check if documents.toml exists in file_contents and return appropriate result
+        let file_exists = self.file_contents.contains_key("documents.toml");
         let content = if file_exists {
-            self.file_contents.get(file_path).cloned()
+            self.file_contents.get("documents.toml").cloned()
         } else {
             None
         };
