@@ -953,9 +953,9 @@ pub mod tests {
             assert_eq!(results.len(), 3);
             assert_eq!(results.get("docs/file1.md").unwrap().as_deref(), Some("Content of file 1"));
             assert_eq!(results.get("docs/file2.md").unwrap().as_deref(), Some("Content of file 2"));
-            assert!(results.get("docs/file3.md").unwrap().is_none());
+            assert!(results.get("docs/file3.md").is_none());
         }
-        
+
         #[tokio::test]
         async fn test_batch_validate_referenced_files() {
             let mut client = MockGitHubClient::new();
