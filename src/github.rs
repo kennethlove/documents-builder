@@ -3,6 +3,8 @@ use crate::ProjectConfig;
 use async_trait::async_trait;
 use octocrab::{Octocrab, OctocrabBuilder};
 use std::collections::HashMap;
+use std::time::Duration;
+use tokio::time::sleep;
 
 #[derive(thiserror::Error, Debug)]
 pub enum GitHubError {
@@ -38,6 +40,12 @@ pub enum GitHubError {
     FileNotFound(String),
     #[error("Failed to decode content for file: {0}")]
     InvalidFormat(String),
+    #[error("GraphQL error: {0}")]
+    GraphQLError(String),
+    #[error("Batch operation failed: {0}")]
+    BatchOperationFailed(String),
+    #[error("Query complexity exceeded")]
+    QueryComplexityExceeded,
 }
 
 #[derive(Debug, Clone)]
@@ -129,12 +137,25 @@ pub trait Client {
     /// * `Result<Vec<RepositoryFileContent>, GitHubError>` - A vector of repository file content information
     ///   including repository name, whether the documents.toml file exists, and the file content if it exists
     async fn batch_fetch_config_file_content(&self) -> Result<Vec<RepositoryFileContent>, GitHubError>;
+
+    /// Enhanced batch operation to fetch files from multiple repositories at once
+    async fn batch_fetch_files_multi_repo(
+        &self,
+        repo_file_map: &HashMap<String, Vec<String>>,
+    ) -> Result<HashMap<String, HashMap<String, Option<String>>>, GitHubError>;
+
+    /// Validate that all files referenced in configurations exist and are accessible
+    async fn batch_validate_referenced_files(
+        &self,
+        file_references: &HashMap<String, Vec<String>>,
+    ) -> Result<HashMap<String, HashMap<String, bool>>, GitHubError>;
 }
 
 #[derive(Clone, Debug)]
 pub struct GitHubClient {
     pub client: Octocrab,
     pub organization: String,
+    rate_limit_buffer: u32, // Number of requests to keep as a buffer
 }
 
 impl GitHubClient {
@@ -146,7 +167,129 @@ impl GitHubClient {
         Ok(Self {
             client,
             organization: config.github_organization.clone(),
+            rate_limit_buffer: 100, // Keep 100 requests as a buffer
         })
+    }
+
+    /// Enhanced rate limit handling with exponential backoff and proactive throttling
+    async fn check_and_handle_rate_limits(&self) -> Result<(), GitHubError> {
+        const MAX_RETRIES: u32 = 3;
+        let mut retry_count = 0;
+
+        loop {
+            let rate_limit = self.client.ratelimit().get().await.map_err(GitHubError::ApiError)?;
+
+            // If we're getting close to the limit, wait
+            if rate_limit.rate.remaining <= self.rate_limit_buffer as usize {
+                let reset_time = chrono::DateTime::from_timestamp(rate_limit.rate.reset as i64, 0)
+                    .unwrap_or_else(|| chrono::Utc::now());
+                let reset_duration = reset_time.signed_duration_since(chrono::Utc::now());
+
+                if reset_duration.num_seconds() > 0 && reset_duration.num_seconds() < 3600 {
+                    tracing::info!(
+                        "Rate limit approaching (remaining: {}), waiting {} seconds until reset",
+                        rate_limit.rate.remaining,
+                        reset_duration.num_seconds()
+                    );
+
+                    sleep(Duration::from_secs(reset_duration.num_seconds() as u64 + 1)).await;
+                    continue;
+                }
+            }
+
+            // If we have sufficient requests remaining, proceed
+            if rate_limit.rate.remaining > 0 {
+                return Ok(());
+            }
+
+            // If we're completely rate-limited, implement retry with backoff
+            retry_count += 1;
+            if retry_count > MAX_RETRIES {
+                return Err(GitHubError::RateLimitExceeded);
+            }
+
+            let backoff_duration = Duration::from_secs(2_u64.pow(retry_count));
+            tracing::warn!(
+                "Rate limit exceeded, retrying in {} seconds (attempt {}/{})",
+                backoff_duration.as_secs(),
+                retry_count,
+                MAX_RETRIES
+            );
+
+            sleep(backoff_duration).await;
+        }
+    }
+
+    /// Execute GraphQL query with automatic rate limiting and retry logic
+    async fn execute_graphql_with_retries(
+        &self,
+        query: &serde_json::Value,
+    ) -> Result<serde_json::Value, GitHubError> {
+        const MAX_RETRIES: u32 = 3;
+        let mut retry_count = 0;
+
+        loop {
+            // Check rate limits before making the request
+            self.check_and_handle_rate_limits().await?;
+
+            let query_response: Result<serde_json::Value, _> = self.client.graphql(query).await;
+
+            match query_response {
+                Ok(response) => {
+                    // Check for GraphQL errors in the response
+                    if let Some(errors) = response.get("errors") {
+                        let error_msg = errors.to_string();
+
+                        // Handle specific GraphQL errors
+                        if error_msg.contains("rate limit") || error_msg.contains("RATE_LIMITED") {
+                            retry_count += 1;
+                            if retry_count > MAX_RETRIES {
+                                return Err(GitHubError::RateLimitExceeded);
+                            }
+
+                            let backoff_duration = Duration::from_secs(2_u64.pow(retry_count));
+                            tracing::warn!("GraphQL rate limited, retrying in {} seconds (attempt {}/{})",
+                                backoff_duration.as_secs(),
+                                retry_count,
+                                MAX_RETRIES
+                            );
+                            sleep(backoff_duration).await;
+                            continue;
+                        }
+
+                        if error_msg.contains("complexity") {
+                            return Err(GitHubError::QueryComplexityExceeded);
+                        }
+
+                        return Err(GitHubError::GraphQLError(error_msg));
+                    }
+
+                    return Ok(response);
+                }
+                Err(e) => {
+                    retry_count += 1;
+                    if retry_count > MAX_RETRIES {
+                        return Err(GitHubError::ApiError(e));
+                    }
+
+                    let backoff_duration = Duration::from_secs(2_u64.pow(retry_count));
+                    tracing::warn!("GraphQL request failed, retrying in {} seconds (attempt {}/{})",
+                        backoff_duration.as_secs(),
+                        retry_count,
+                        MAX_RETRIES
+                    );
+                    sleep(backoff_duration).await;
+                }
+            }
+        }
+    }
+
+    /// Split large file lists into smaller batches to avoid GraphQL complexity limits
+    fn create_file_batches(&self, file_paths: &[String], batch_size: usize) -> Vec<Vec<String>> {
+        file_paths
+            .chunks(batch_size)
+            .map(|chunk| chunk.to_vec())
+            .collect()
     }
 }
 
@@ -159,18 +302,7 @@ impl Client for GitHubClient {
     }
 
     async fn handle_rate_limits(&self) -> Result<(), GitHubError> {
-        let rate_limit = self
-            .client
-            .ratelimit()
-            .get()
-            .await
-            .map_err(GitHubError::ApiError)?;
-
-        if rate_limit.rate.remaining == 0 {
-            return Err(GitHubError::RateLimitExceeded);
-        }
-
-        Ok(())
+        self.check_and_handle_rate_limits().await
     }
 
     async fn repositories(&self) -> Result<Vec<String>, GitHubError> {
@@ -319,6 +451,78 @@ impl Client for GitHubClient {
         Ok(files)
     }
 
+    async fn batch_fetch_files(
+        &self,
+        repo_name: &str,
+        file_paths: &[String],
+    ) -> Result<HashMap<String, Option<String>>, GitHubError> {
+        if file_paths.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let mut final_result = HashMap::new();
+
+        // Split into batches to avoid complexity limits
+        let batches = self.create_file_batches(file_paths, 50); // 50 files per batch
+
+        for batch in batches {
+            // Build GraphQL query to fetch multiple files from a single repository
+            let mut file_queries = Vec::new();
+            for (index, file_path) in batch.iter().enumerate() {
+                file_queries.push(format!(
+                    r#"file{}: object(expression: "HEAD:{}") {{
+                      ... on Blob {{
+                        id
+                        text
+                      }}
+                    }}"#,
+                    index,
+                    file_path
+                ));
+            }
+
+            let query = format!(
+                r#"
+                query {{
+                  repository(owner: "{org}", name: "{repo}") {{
+                    {files}
+                  }}
+                }}
+                "#,
+                org = self.organization,
+                repo = repo_name,
+                files = file_queries.join("\n                      ")
+            );
+
+            let query = serde_json::json!({"query": &query});
+
+            // Execute the GraphQL query with retries
+            let response = self.execute_graphql_with_retries(&query).await?;
+
+            // Extract file data from response
+            let repository = response["data"]["repository"]
+                .as_object()
+                .ok_or_else(|| GitHubError::RequestFailed("Invalid GraphQL response format".to_string()))?;
+
+            // Process each file in this batch
+            for (index, file_path) in batch.iter().enumerate() {
+                let file_key = format!("file{}", index);
+                let file_object = &repository[&file_key];
+
+                // Check if the file exists (object will be null if file doesn't exist)
+                let content = if !file_object.is_null() {
+                    file_object["text"].as_str().map(|s| s.to_string())
+                } else {
+                    None
+                };
+
+                final_result.insert(file_path.clone(), content);
+            }
+        }
+
+        Ok(final_result)
+    }
+
     async fn batch_check_config_file_exists(&self) -> Result<HashMap<String, bool>, GitHubError> {
         let mut result = HashMap::new();
         let mut cursor: Option<String> = None;
@@ -357,10 +561,7 @@ impl Client for GitHubClient {
             let query = serde_json::json!({"query": &query});
 
             // Execute the GraphQL query
-            let response: serde_json::Value = self.client
-                .graphql(&query)
-                .await
-                .map_err(|e| GitHubError::ApiError(e))?;
+            let response = self.execute_graphql_with_retries(&query).await?;
 
             // Extract repository data from response
             let repos = response["data"]["organization"]["repositories"]["nodes"]
@@ -391,75 +592,6 @@ impl Client for GitHubClient {
             cursor = response["data"]["organization"]["repositories"]["pageInfo"]["endCursor"]
                 .as_str()
                 .map(|s| s.to_string());
-        }
-
-        Ok(result)
-    }
-
-    async fn batch_fetch_files(
-        &self,
-        repo_name: &str,
-        file_paths: &[String],
-    ) -> Result<HashMap<String, Option<String>>, GitHubError> {
-        if file_paths.is_empty() {
-            return Ok(HashMap::new());
-        }
-
-        // Build GraphQL query to fetch multiple files from a single repository
-        let mut file_queries = Vec::new();
-        for (index, file_path) in file_paths.iter().enumerate() {
-            file_queries.push(format!(
-                r#"file{}: object(expression: "HEAD:{}") {{
-                    ... on Blob {{
-                        id
-                        text
-                    }}
-                }}"#,
-                index, file_path
-            ));
-        }
-
-        let query = format!(
-            r#"
-            query {{
-              repository(owner: "{org}", name: "{repo}") {{
-                {files}
-              }}
-            }}
-            "#,
-            org = self.organization,
-            repo = repo_name,
-            files = file_queries.join("\n                ")
-        );
-
-        let query = serde_json::json!({"query": &query});
-
-        // Execute the GraphQL query
-        let response: serde_json::Value = self.client
-            .graphql(&query)
-            .await
-            .map_err(|e| GitHubError::ApiError(e))?;
-
-        // Extract file data from response
-        let repository = response["data"]["repository"]
-            .as_object()
-            .ok_or_else(|| GitHubError::RequestFailed("Invalid GraphQL response format".to_string()))?;
-
-        let mut result = HashMap::new();
-        
-        // Process each file
-        for (index, file_path) in file_paths.iter().enumerate() {
-            let file_key = format!("file{}", index);
-            let file_object = &repository[&file_key];
-            
-            // Check if the file exists (object will be null if file doesn't exist)
-            let content = if !file_object.is_null() {
-                file_object["text"].as_str().map(|s| s.to_string())
-            } else {
-                None
-            };
-            
-            result.insert(file_path.clone(), content);
         }
 
         Ok(result)
@@ -504,10 +636,7 @@ impl Client for GitHubClient {
             let query = serde_json::json!({"query": &query});
 
             // Execute the GraphQL query
-            let response: serde_json::Value = self.client
-                .graphql(&query)
-                .await
-                .map_err(|e| GitHubError::ApiError(e))?;
+            let response = self.execute_graphql_with_retries(&query).await?;
 
             // Extract repository data from response
             let repos = response["data"]["organization"]["repositories"]["nodes"]
@@ -551,6 +680,41 @@ impl Client for GitHubClient {
             cursor = response["data"]["organization"]["repositories"]["pageInfo"]["endCursor"]
                 .as_str()
                 .map(|s| s.to_string());
+        }
+
+        Ok(result)
+    }
+
+    async fn batch_fetch_files_multi_repo(
+        &self,
+        repo_file_map: &HashMap<String, Vec<String>>,
+    ) -> Result<HashMap<String, HashMap<String, Option<String>>>, GitHubError> {
+        let mut result = HashMap::new();
+
+        for (repo_name, file_paths) in repo_file_map {
+            let files = self.batch_fetch_files(repo_name, file_paths).await?;
+            result.insert(repo_name.to_string(), files);
+        }
+
+        Ok(result)
+    }
+
+    async fn batch_validate_referenced_files(
+        &self,
+        file_references: &HashMap<String, Vec<String>>,
+    ) -> Result<HashMap<String, HashMap<String, bool>>, GitHubError> {
+        let mut result = HashMap::new();
+
+        for (repo_name, files) in file_references {
+            let files = self.batch_fetch_files(repo_name, files).await?;
+
+            // Convert content results to existence checks
+            let existence_map: HashMap<String, bool> = files
+                .into_iter()
+                .map(|(path, content)| (path, content.is_some()))
+                .collect();
+
+            result.insert(repo_name.to_string(), existence_map);
         }
 
         Ok(result)
@@ -728,6 +892,34 @@ pub mod tests {
 
             Ok(result)
         }
+
+        async fn batch_fetch_files_multi_repo(&self, repo_file_map: &HashMap<String, Vec<String>>) -> Result<HashMap<String, HashMap<String, Option<String>>>, GitHubError> {
+            let mut result = HashMap::new();
+
+            for (repo_name, file_paths) in repo_file_map {
+                let files = self.batch_fetch_files(repo_name, file_paths).await?;
+                result.insert(repo_name.clone(), files);
+            }
+
+            Ok(result)
+        }
+
+        async fn batch_validate_referenced_files(
+            &self,
+            file_references: &HashMap<String, Vec<String>>,
+        ) -> Result<HashMap<String, HashMap<String, bool>>, GitHubError> {
+            let mut result = HashMap::new();
+
+            for (repo_name, files) in file_references {
+                let mut existence_map = HashMap::new();
+                for file in files {
+                    existence_map.insert(file.clone(), self.file_contents.contains_key(file));
+                }
+                result.insert(repo_name.clone(), existence_map);
+            }
+
+            Ok(result)
+        }
     }
 
     #[cfg(test)]
@@ -747,6 +939,39 @@ pub mod tests {
             
             let content = results[0].content.as_ref().unwrap();
             assert!(content.contains("Test Project"));
+        }
+
+        #[tokio::test]
+        async fn test_batch_fetch_files() {
+            let mut client = MockGitHubClient::new();
+            client.add_file("docs/file1.md", "Content of file 1");
+            client.add_file("docs/file2.md", "Content of file 2");
+
+            let file_paths = vec!["docs/file1.md".to_string(), "docs/file2.md".to_string(), "docs/missing.md".to_string()];
+            let results = client.batch_fetch_files("test-repo", &file_paths).await.unwrap();
+
+            assert_eq!(results.len(), 3);
+            assert_eq!(results.get("docs/file1.md").unwrap().as_deref(), Some("Content of file 1"));
+            assert_eq!(results.get("docs/file2.md").unwrap().as_deref(), Some("Content of file 2"));
+            assert!(results.get("docs/file3.md").unwrap().is_none());
+        }
+        
+        #[tokio::test]
+        async fn test_batch_validate_referenced_files() {
+            let mut client = MockGitHubClient::new();
+            client.add_file("docs/file1.md", "Content of file 1");
+            client.add_file("docs/file2.md", "Content of file 2");
+
+            let mut file_references = HashMap::new();
+            file_references.insert("test-repo".to_string(), vec!["docs/file1.md".to_string(), "docs/file2.md".to_string(), "docs/missing.md".to_string()]);
+
+            let results = client.batch_validate_referenced_files(&file_references).await.unwrap();
+
+            assert_eq!(results.len(), 1);
+            let existence_map = results.get("test-repo").unwrap();
+            assert_eq!(existence_map.get("docs/file1.md").unwrap(), &true);
+            assert_eq!(existence_map.get("docs/file2.md").unwrap(), &true);
+            assert_eq!(existence_map.get("docs/missing.md").unwrap(), &false);
         }
     }
 }
