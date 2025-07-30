@@ -2,7 +2,6 @@ use crate::processing::pipeline::{
     DiscoveredFile, PipelineError, ProcessingContext, ValidatedFile,
 };
 use std::collections::HashMap;
-use tracing::{debug, warn};
 
 pub struct ContentValidator<'a> {
     context: &'a ProcessingContext,
@@ -17,65 +16,91 @@ impl<'a> ContentValidator<'a> {
         &self,
         files: Vec<DiscoveredFile>,
     ) -> Result<Vec<ValidatedFile>, PipelineError> {
-        let mut validated_files = Vec::new();
+        tracing::info!("Starting batch validation of {} files", files.len());
 
+        if files.is_empty() {
+            tracing::warn!("No files to validate");
+            return Ok(Vec::new());
+        }
+
+        // Group files by repository for bulk fetching
+        let mut repo_file_map: HashMap<String, Vec<String>> = HashMap::new();
+        for file in &files {
+            let repo_files = repo_file_map.entry(self.context.repository.clone()).or_insert_with(Vec::new);
+            repo_files.push(file.path.clone());
+        }
+
+        // Batch fetch all file contents
+        tracing::info!("Batch fetching content for {} files from {} repositories", files.len(), repo_file_map.len());
+
+        let batch_results = self
+            .context
+            .github_client
+            .batch_fetch_files_multi_repo(&repo_file_map)
+            .await
+            .map_err(|e| PipelineError::GitHub(e))?;
+
+        // Get the file contents for our repository
+        let file_contents = batch_results
+            .get(&self.context.repository)
+            .ok_or_else(|| PipelineError::Validation("Repository not found in batch results".to_string()))?;
+
+        let mut validated_files = Vec::new();
+        let mut validation_errors = Vec::new();
+
+        // Process each file with its pre-fetched content
         for file in files {
-            let file_path = file.path.clone();
-            match self.validate_file(file).await {
-                Ok(validated) => validated_files.push(validated),
+            match self.validate_file_with_content(file.clone(), file_contents).await {
+                Ok(validated_file) => validated_files.push(validated_file),
                 Err(e) => {
-                    warn!("Validation failed for file {}: {}", file_path, e);
+                    tracing::warn!("Validation error for file {}: {}", file.path, e);
+                    validation_errors.push(format!("file {}: {}", file.path, e));
                 }
             }
         }
 
+        if !validation_errors.is_empty() {
+            tracing::warn!("Validation completed with {} errors", validation_errors.len());
+            return Err(PipelineError::Validation(
+                format!("Multiple validation errors occurred: {}", validation_errors.join(", "))
+            ));
+        }
+
+        tracing::info!("Batch validation completed successfully for {} files", validated_files.len());
         Ok(validated_files)
     }
 
-    async fn validate_file(&self, file: DiscoveredFile) -> Result<ValidatedFile, PipelineError> {
-        debug!("Validating file: {}", file.path);
-
-        // Fetch file content
-        let content = self
-            .context
-            .github_client
-            .get_file_content(&self.context.repository, &file.path)
-            .await
-            .map_err(PipelineError::GitHub)?;
-
-        // Parse frontmatter and content
-        let (frontmatter, markdown_content) = self.parse_frontmatter(&content);
-
-        // Validate content
-        let validation_warnings = self.validate_content(&markdown_content, &frontmatter);
-
-        Ok(ValidatedFile {
-            discovered: file,
-            content,
-            frontmatter,
-            markdown_content,
-            validation_warnings,
-        })
-    }
-
     fn parse_frontmatter(&self, content: &str) -> (HashMap<String, String>, String) {
-        if !content.starts_with("---\n") {
-            return (HashMap::new(), content.to_string());
+        let lines: Vec<&str> = content.lines().collect();
+        let mut frontmatter = HashMap::new();
+        let mut markdown_start = 0;
+
+        if lines.first() == Some(&"---") {
+            for (i, line) in lines.iter().enumerate().skip(1) {
+                if *line == "---" {
+                    markdown_start = i + 1; // Start after the closing delimiter
+                    break;
+                }
+
+                if let Some((key, value)) = line.split_once(':') {
+                    let key = key.trim().to_string();
+                    let value = value.trim().trim_matches('"').to_string();
+                    frontmatter.insert(key, value);
+                }
+            }
         }
 
-        if let Some(end_pos) = content[4..].find("\n---\n") {
-            let frontmatter_text = &content[4..end_pos + 4];
-            let markdown_content = &content[end_pos + 8..];
+        let markdown_content = lines.get(markdown_start..)
+            .map(|lines| lines.join("\n"))
+            .unwrap_or_else(|| content.to_string());
 
-            let frontmatter = self.parse_yaml_frontmatter(frontmatter_text);
-            return (frontmatter, markdown_content.trim().to_string());
-        }
+        (frontmatter, markdown_content)
 
-        (HashMap::new(), content.to_string())
     }
 
+    #[allow(dead_code)]
     fn parse_yaml_frontmatter(&self, yaml_text: &str) -> HashMap<String, String> {
-        let mut metadata = HashMap::new();
+        let mut frontmatter = HashMap::new();
 
         for line in yaml_text.lines() {
             if let Some((key, value)) = line.split_once(':') {
@@ -85,10 +110,10 @@ impl<'a> ContentValidator<'a> {
                     .trim_matches('"')
                     .trim_matches('\'')
                     .to_string();
-                metadata.insert(key, value);
+                frontmatter.insert(key, value);
             }
         }
-        metadata
+        frontmatter
     }
 
     fn validate_content(
@@ -135,6 +160,49 @@ impl<'a> ContentValidator<'a> {
         }
 
         broken_links
+    }
+
+    async fn validate_file_with_content(
+        &self,
+        file: DiscoveredFile,
+        file_contents: &HashMap<String, Option<String>>,
+    ) -> Result<ValidatedFile, PipelineError> {
+        tracing::debug!("Validating file: {}", file.path);
+
+        // Get content from batch results
+        let content = match file_contents.get(&file.path) {
+            Some(Some(content)) => content.clone(),
+            Some(None) => {
+                return Err(PipelineError::Validation(format!("File {} not found", file.path)));
+            }
+            None => {
+                return Err(PipelineError::Validation(
+                    format!("File not included in batch results: {}", file.path)
+                ));
+            }
+        };
+
+        // Parse frontmatter and content
+        let (frontmatter, markdown_content) = self.parse_frontmatter(&content);
+
+        // Validate content and collect warnings
+        let warnings = self.validate_content(&markdown_content, &frontmatter);
+
+        let validated_file = ValidatedFile {
+            discovered: file,
+            content,
+            frontmatter,
+            markdown_content,
+            validation_warnings: warnings,
+        };
+
+        tracing::debug!(
+            "File validation completed: {} (warnings: {})",
+            validated_file.discovered.path,
+            validated_file.validation_warnings.len()
+        );
+
+        Ok(validated_file)
     }
 }
 
@@ -383,5 +451,37 @@ mod tests {
         let broken_links = validator.find_potentially_broken_links(markdown);
 
         assert!(broken_links.is_empty(), "Expected no broken links");
+    }
+
+    #[tokio::test]
+    async fn test_batch_verification_with_multiple_files() {
+        let mut github_client = create_dummy_github_client();
+        github_client.add_file("docs/file1.md", "---\ntitle: File 1\n---\n# File 1 Content");
+        github_client.add_file("docs/file2.md", "---\ntitle: File 2\n---\n# File 2 Content");
+
+        let context = create_test_context();
+
+        let validator = ContentValidator::new(&context);
+
+        let files = vec![
+            DiscoveredFile {
+                path: "docs/file1.md".to_string(),
+                pattern_source: "*.md".to_string(),
+                estimated_size: Some(100),
+            },
+            DiscoveredFile {
+                path: "docs/file2.md".to_string(),
+                pattern_source: "*.md".to_string(),
+                estimated_size: Some(100),
+            },
+        ];
+
+        let validated_files = validator.validate_batch(files).await.unwrap();
+
+        assert_eq!(validated_files.len(), 2);
+        assert_eq!(validated_files[0].discovered.path, "docs/file1.md");
+        assert_eq!(validated_files[1].discovered.path, "docs/file2.md");
+        assert!(validated_files[0].frontmatter.contains_key("title"));
+        assert!(validated_files[1].frontmatter.contains_key("title"));
     }
 }
