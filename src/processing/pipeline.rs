@@ -155,7 +155,7 @@ pub struct ProcessingMetadata {
 mod tests {
     use super::*;
     use crate::github::tests::MockGitHubClient;
-    use crate::github::{Client, GitHubClient};
+    use crate::github::Client;
     use mockito;
     use std::collections::HashMap;
     use std::sync::Arc;
@@ -186,10 +186,7 @@ mod tests {
         };
 
         // Create a dummy GitHubClient for the RepositoryProcessor
-        let dummy_client = GitHubClient {
-            client: octocrab::Octocrab::builder().build().unwrap(),
-            organization: "test-org".to_string(),
-        };
+        let dummy_client = MockGitHubClient::new();
 
         let processor = crate::processing::RepositoryProcessor::new(
             dummy_client,

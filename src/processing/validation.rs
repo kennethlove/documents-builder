@@ -142,18 +142,13 @@ impl<'a> ContentValidator<'a> {
 mod tests {
     use super::*;
     use crate::ProjectDetails;
-    use crate::github::GitHubClient;
     use crate::github::tests::MockGitHubClient;
     use std::collections::HashMap;
     use std::sync::Arc;
 
     // Helper function to create a dummy GitHubClient for tests
-    fn create_dummy_github_client() -> GitHubClient {
-        let client = octocrab::Octocrab::builder().build().unwrap();
-        GitHubClient {
-            client,
-            organization: "test-org".to_string(),
-        }
+    fn create_dummy_github_client() -> MockGitHubClient {
+        MockGitHubClient::new()
     }
 
     // Helper function to create a test ProcessingContext

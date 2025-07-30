@@ -3,11 +3,10 @@
 // These tests use mockito to mock the GitHub client's behavior.
 
 use async_trait::async_trait;
-use documents::github::{Client, GitHubClient, GitHubError, RepositoryFile, RepositoryFileContent};
+use documents::github::{Client, GitHubError, RepositoryFile, RepositoryFileContent};
 use documents::processing::RepositoryProcessor;
 use documents::processing::{DocumentProcessingPipeline, ProcessingContext};
 use documents::{DocumentConfig, ProjectConfig, ProjectDetails};
-use octocrab::Octocrab;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -48,12 +47,8 @@ impl MockGitHubClient {
 }
 
 // Helper function to create a dummy GitHubClient for tests
-fn create_dummy_github_client() -> GitHubClient {
-    let client = Octocrab::builder().build().unwrap();
-    GitHubClient {
-        client,
-        organization: "test-org".to_string(),
-    }
+fn create_dummy_github_client() -> MockGitHubClient {
+    MockGitHubClient::new()
 }
 
 #[async_trait]
@@ -118,7 +113,7 @@ impl Client for MockGitHubClient {
 
     async fn list_repository_files(
         &self,
-        repo_name: &str,
+        _repo_name: &str,
         path: Option<&str>,
     ) -> Result<Vec<RepositoryFile>, GitHubError> {
         let search_path = path.unwrap_or("");
@@ -181,6 +176,34 @@ impl Client for MockGitHubClient {
             content,
         });
         
+        Ok(result)
+    }
+
+    async fn batch_fetch_files_multi_repo(&self, repo_file_map: &HashMap<String, Vec<String>>) -> Result<HashMap<String, HashMap<String, Option<String>>>, GitHubError> {
+        let mut result = HashMap::new();
+
+        for (repo_name, file_paths) in repo_file_map {
+            let files = self.batch_fetch_files(repo_name, file_paths).await?;
+            result.insert(repo_name.clone(), files);
+        }
+
+        Ok(result)
+    }
+
+    async fn batch_validate_referenced_files(
+        &self,
+        file_references: &HashMap<String, Vec<String>>,
+    ) -> Result<HashMap<String, HashMap<String, bool>>, GitHubError> {
+        let mut result = HashMap::new();
+
+        for (repo_name, files) in file_references {
+            let mut existence_map = HashMap::new();
+            for file in files {
+                existence_map.insert(file.clone(), self.file_contents.contains_key(file));
+            }
+            result.insert(repo_name.clone(), existence_map);
+        }
+
         Ok(result)
     }
 }
