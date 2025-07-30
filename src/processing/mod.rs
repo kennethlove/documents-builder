@@ -8,7 +8,7 @@ pub mod validation;
 pub use output_handler::OutputHandler;
 pub use pipeline::{
     CodeBlock, DocumentProcessingPipeline, Heading, Image, Link, PipelineError, ProcessedDocument,
-    ProcessingContext, ProcessingMetadata,
+    ProcessingMetadata,
 };
 pub use validate_config::ConfigValidator;
 
@@ -18,255 +18,374 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use thiserror::Error;
-use tracing::{debug, error, info, warn};
 
 #[derive(Error, Debug)]
 pub enum ProcessingError {
     #[error("GitHub API error: {0}")]
-    GitHub(#[from] crate::github::GitHubError),
+    GitHubApiError(#[from] crate::github::GitHubError),
     #[error("IO error: {0}")]
-    Io(#[from] std::io::Error),
+    IoError(#[from] std::io::Error),
     #[error("Serialization error: {0}")]
-    Serialization(#[from] serde_json::Error),
-    #[error("Processing error: {0}")]
-    Processing(String),
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ProcessingResult {
-    pub repository: String,
-    pub processed_at: chrono::DateTime<chrono::Utc>,
-    pub file_processed: usize,
-    pub fragments_generated: usize,
-    pub processing_time_ms: u64,
-    pub fragments: Vec<DocumentFragment>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DocumentFragment {
-    pub id: String,
-    pub file_path: String,
-    pub fragment_type: FragmentType,
-    pub title: String,
-    pub content: String,
-    pub metadata: HashMap<String, String>,
-    pub word_count: usize,
-    pub last_modified: Option<chrono::DateTime<chrono::Utc>>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum FragmentType {
-    Content,
-    Navigation,
+    SerializationError(#[from] serde_json::Error),
+    #[error("File processing error: {0}")]
+    FileProcessingError(String),
+    #[error("Batch operation failed: {0}")]
+    BatchOperationError(String),
+    #[error("Validation error: {0}")]
+    ValidationError(String),
 }
 
 #[derive(Clone)]
-pub struct RepositoryProcessor {
-    github: Arc<dyn Client + Send + Sync>,
-    config: ProjectConfig,
-    repository: String,
+pub struct ProcessingContext {
+    pub repository: String,
+    pub github_client: Arc<dyn Client + Send + Sync>,
 }
 
-impl std::fmt::Debug for RepositoryProcessor {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("RepositoryProcessor")
-            .field("config", &self.config)
-            .field("repository", &self.repository)
-            .finish()
-    }
+#[derive(Debug, Clone)]
+pub struct DiscoveredFile {
+    pub path: String,
+    pub name: String,
+    pub size: Option<u64>,
 }
 
-impl RepositoryProcessor {
-    pub fn new(
-        github: impl Client + Send + Sync + 'static,
-        config: ProjectConfig,
-        repository: String,
-    ) -> Self {
-        RepositoryProcessor {
-            github: Arc::new(github),
-            config,
+#[derive(Debug, Clone)]
+pub struct ValidatedFile {
+    pub path: String,
+    pub name: String,
+    pub size: Option<u64>,
+    pub content: String,
+    pub frontmatter: HashMap<String, String>,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ProcessedFile {
+    pub path: String,
+    pub name: String,
+    pub size: Option<u64>,
+    pub content: String,
+    pub html_content: String,
+    pub frontmatter: HashMap<String, String>,
+    pub metadata: FileMetadata,
+}
+
+#[derive(Debug, Clone)]
+pub struct FileMetadata {
+    pub title: Option<String>,
+    pub created_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub updated_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub tags: Vec<String>,
+    pub word_count: usize,
+    pub reading_time_minutes: u32,
+}
+
+pub struct FileProcessor {
+    pub repository: String,
+    pub github_client: Arc<dyn Client + Send + Sync>,
+}
+
+impl FileProcessor {
+    pub fn new(repository: String, github_client: Arc<dyn Client + Send + Sync>) -> Self {
+        Self {
             repository,
+            github_client,
         }
     }
 
-    pub async fn process(&self, verbose: bool) -> Result<ProcessingResult, ProcessingError> {
-        let start_time = std::time::Instant::now();
+    pub async fn process_files_batch(
+        &self,
+        file_paths: &[String],
+    ) -> Result<Vec<ProcessedFile>, ProcessingError> {
+        tracing::info!("Starting batch file processing for {} files", file_paths.len());
 
-        info!("Starting processing of repository {}", self.repository);
-
-        // Step 1: Discover markdown files
-        let markdown_files = self.discover_markdown_files().await?;
-
-        if verbose {
-            debug!("Discovered {} markdown files", markdown_files.len());
-            for file in &markdown_files {
-                debug!("  - {}", file);
-            }
+        if file_paths.is_empty() {
+            return Ok(Vec::new());
         }
 
-        // Step 2: Batch fetch all markdown file contents
-        if verbose {
-            debug!("Batch fetching {} markdown files", markdown_files.len());
-        }
-
+        // Batch fetch all file contents
         let file_contents = self
-            .github
-            .batch_fetch_files(&self.repository, &markdown_files)
-            .await
-            .map_err(ProcessingError::GitHub)?;
+            .github_client
+            .batch_fetch_files(&self.repository, file_paths)
+            .await?;
 
-        // Step 3: Process each markdown file with its content
-        let mut fragments = Vec::new();
-        let mut files_processed = 0;
+        let mut processed_files = Vec::new();
 
-        for file_path in markdown_files {
-            if verbose {
-                debug!("Processing file: {}", file_path);
-            }
-
-            match file_contents.get(&file_path) {
+        // Process each file with its pre-fetched content
+        for file_path in file_paths {
+            match file_contents.get(file_path) {
                 Some(Some(content)) => {
-                    match self.process_markdown_file_with_content(&file_path, content) {
-                        Ok(mut file_fragments) => {
-                            files_processed += 1;
-                            fragments.append(&mut file_fragments);
-
-                            if verbose {
-                                debug!("  Generated {} fragments", file_fragments.len());
-                            }
-                        }
-                        Err(e) => {
-                            warn!("Failed to process file {}: {}", file_path, e);
-                        }
-                    }
+                    let processed_file = self.process_file_content(file_path, content).await?;
+                    processed_files.push(processed_file);
                 }
                 Some(None) => {
-                    warn!("File not found: {}", file_path);
+                    tracing::warn!("File not found during batch processing: {}", file_path);
+                    return Err(ProcessingError::FileProcessingError(format!("File not found: {}", file_path)));
                 }
                 None => {
-                    warn!("File not included in batch response: {}", file_path);
+                    tracing::error!("File not included in batch results: {}", file_path);
+                    return Err(ProcessingError::BatchOperationError(format!("File not included in batch results: {}", file_path)));
                 }
             }
         }
 
-        let processing_time = start_time.elapsed();
-
-        let result = ProcessingResult {
-            repository: self.repository.clone(),
-            processed_at: chrono::Utc::now(),
-            file_processed: files_processed,
-            fragments_generated: fragments.len(),
-            processing_time_ms: processing_time.as_millis() as u64,
-            fragments,
-        };
-
-
-        Ok(result)
+        tracing::info!("Batch file processing completed for {} files", processed_files.len());
+        Ok(processed_files)
     }
 
-    async fn discover_markdown_files(&self) -> Result<Vec<String>, ProcessingError> {
-        debug!(
-            "Discovering markdown files for repository {}",
-            self.repository
-        );
-
-        let patterns = self.config.documents.clone();
-        let mut discovered_files = Vec::new();
-
-        for document in patterns.values() {
-            if let Some(path) = &document.path {
-                discovered_files.push(path.display().to_string());
-            } else if let Some(sub_documents) = &document.sub_documents {
-                for sub_doc in sub_documents {
-                    if let Some(sub_path) = &sub_doc.path {
-                        discovered_files.push(sub_path.display().to_string());
-                    }
-                }
-            } else {
-                warn!(
-                    "Document configuration for {} does not specify a path or sub-documents",
-                    document.title
-                );
-            }
-        }
-
-        discovered_files.sort();
-        discovered_files.dedup();
-
-        debug!("Discovered {} markdown files", discovered_files.len());
-
-        Ok(discovered_files)
-    }
-
-    #[allow(dead_code)]
-    async fn process_markdown_file(
-        &self,
-        file_path: &str,
-    ) -> Result<Vec<DocumentFragment>, ProcessingError> {
-        debug!("Processing markdown file: {}", file_path);
-
-        // Fetch the file's content
+    /// Legacy method for backward compatibility
+    pub async fn process_file(&self, file_path: &str) -> Result<ProcessedFile, ProcessingError> {
         let content = self
-            .github
+            .github_client
             .get_file_content(&self.repository, file_path)
-            .await
-            .map_err(ProcessingError::GitHub)?;
+            .await?;
 
-        self.process_markdown_file_with_content(file_path, &content)
+        self.process_file_content(file_path, &content).await
     }
 
-    fn process_markdown_file_with_content(
+    /// Process file content
+    async fn process_file_content(
         &self,
         file_path: &str,
         content: &str,
-    ) -> Result<Vec<DocumentFragment>, ProcessingError> {
-        debug!("Processing markdown file with content: {}", file_path);
+    ) -> Result<ProcessedFile, ProcessingError> {
+        tracing::debug!("Processing file: {}", file_path);
 
-        let (frontmatter, markdown_content) = self.extract_frontmatter(content);
+        // Parse frontmatter
+        let (frontmatter, markdown_content) = self.parse_frontmatter(content);
 
-        // Generate fragments
-        let mut fragments = Vec::new();
+        // Convert Markdown to HTML
+        let html_content = self.markdown_to_html(&markdown_content);
 
-        let content_fragment = DocumentFragment {
-            id: format!("{}#{}", self.repository, file_path),
-            file_path: file_path.to_string(),
-            fragment_type: FragmentType::Content,
-            title: frontmatter
-                .get("title")
-                .cloned()
-                .unwrap_or_else(|| "Untitled".to_string()),
-            content: markdown_content.clone(),
-            metadata: frontmatter.clone(),
-            word_count: self.count_words(&markdown_content),
-            last_modified: None,
+        // Extract metadata
+        let metadata = self.extract_metadata(&frontmatter, &markdown_content);
+
+        let processed_file = ProcessedFile {
+            path: file_path.to_string(),
+            name: file_path.split('/').last().unwrap_or(file_path).to_string(),
+            size: Some(content.len() as u64),
+            content: markdown_content,
+            html_content,
+            frontmatter,
+            metadata,
         };
-        fragments.push(content_fragment);
 
-        Ok(fragments)
+        tracing::debug!("File processing completed: {}", file_path);
+        Ok(processed_file)
     }
 
-    fn extract_frontmatter(&self, content: &str) -> (HashMap<String, String>, String) {
-        if content.starts_with("---\n") {
-            if let Some(end_pos) = content[4..].find("\n---\n") {
-                let frontmatter = &content[4..end_pos + 4];
-                let markdown_content = &content[end_pos + 8..];
+    fn parse_frontmatter(&self, content: &str) -> (HashMap<String, String>, String) {
+        let lines: Vec<&str> = content.lines().collect();
+        let mut frontmatter = HashMap::new();
+        let mut markdown_start = 0;
 
-                let mut metadata = HashMap::new();
-                for line in frontmatter.lines() {
-                    if let Some((key, value)) = line.split_once(':') {
-                        metadata
-                            .insert(key.trim().to_string(), value.trim_matches('"').to_string());
-                    }
+        if lines.first() == Some(&"---") {
+            for (i, line) in lines.iter().enumerate().skip(1) {
+                if line == &"---" {
+                    markdown_start = i + 1;
+                    break;
                 }
 
-                return (metadata, markdown_content.to_string());
+                if let Some((key, value)) = line.split_once(':') {
+                    let key = key.trim().to_string();
+                    let value = value.trim().trim_matches('"').to_string();
+                    frontmatter.insert(key, value);
+                }
             }
         }
 
-        (HashMap::new(), content.to_string())
+        let markdown_content = lines.get(markdown_start..)
+            .map(|lines| lines.join("\n"))
+            .unwrap_or_else(|| content.to_string());
+
+        (frontmatter, markdown_content)
     }
 
-    fn count_words(&self, content: &str) -> usize {
-        content.split_whitespace().count()
+    fn markdown_to_html(&self, markdown: &str) -> String {
+        // TODO: Replace with actual Markdown to HTML conversion logic
+        let mut html = markdown.to_string();
+
+        // Convert headers
+        html = html.replace("# ", "<h1>").replace("\n", "</h1>\n");
+        html = html.replace("## ", "<h2>").replace("\n", "</h2>\n");
+        html = html.replace("### ", "<h3>").replace("\n", "</h3>\n");
+
+        // Convert paragraphs
+        let lines: Vec<&str> = html.lines().collect();
+        let mut result = Vec::new();
+        let mut in_paragraph = false;
+
+        for line in lines {
+            if line.trim().is_empty() {
+                if in_paragraph {
+                    result.push("</p>");
+                    in_paragraph = false;
+                }
+                result.push("");
+            } else if line.starts_with("<h") {
+                if in_paragraph {
+                    result.push("</p>");
+                    in_paragraph = false;
+                }
+            } else {
+                if !in_paragraph {
+                    result.push("<p>");
+                    in_paragraph = true;
+                }
+                result.push(line);
+            }
+        }
+
+        if in_paragraph {
+            result.push("</p>");
+        }
+
+        result.join("\n")
+    }
+
+    fn extract_metadata(&self, frontmatter: &HashMap<String, String>, markdown_content: &str) -> FileMetadata {
+        let title = frontmatter.get("title").cloned()
+            .or_else(|| {
+                markdown_content.lines()
+                    .find(|line| line.starts_with("# "))
+                    .map(|line| line.trim_start_matches("# ").to_string())
+            });
+
+        let created_at = frontmatter.get("created_at")
+            .and_then(|date_str| chrono::DateTime::parse_from_rfc3339(date_str).ok())
+            .map(|dt| dt.with_timezone(&chrono::Utc));
+
+        let updated_at = frontmatter.get("updated_at")
+            .and_then(|date_str| chrono::DateTime::parse_from_rfc3339(date_str).ok())
+            .map(|dt| dt.with_timezone(&chrono::Utc));
+
+        let tags = frontmatter.get("tags")
+            .map(|tags_str| {
+                tags_str.split(',')
+                    .map(|tag| tag.trim().to_string())
+                    .collect()
+                }).unwrap_or_default();
+
+        let word_count = markdown_content.split_whitespace().count();
+        let reading_time_minutes = ((word_count as f64 / 200.0).ceil() as u32).max(1);
+
+        FileMetadata {
+            title,
+            created_at,
+            updated_at,
+            tags,
+            word_count,
+            reading_time_minutes,
+        }
+    }
+}
+
+/// Batch validation helper for multiple repositories
+pub async fn validate_files_across_repos(
+    file_references: &HashMap<String, Vec<String>>,
+    github_client: Arc<dyn Client + Send + Sync>,
+) -> Result<HashMap<String, HashMap<String, bool>>, ProcessingError> {
+    tracing::info!("Starting batch validation for {} repositories", file_references.len());
+
+    let validation_results = github_client
+        .batch_validate_referenced_files(file_references)
+        .await?;
+
+    tracing::info!("Batch validation completed across repositories");
+    Ok(validation_results)
+}
+
+/// File collection helper
+pub async fn collect_all_referenced_files(
+    repo_file_map: &HashMap<String, Vec<String>>,
+    github_client: Arc<dyn Client + Send + Sync>,
+) -> Result<HashMap<String, HashMap<String, String>>, ProcessingError> {
+    tracing::info!("Collecting referenced files from {} repositories", repo_file_map.len());
+
+    let batch_results = github_client
+        .batch_fetch_files_multi_repo(repo_file_map)
+        .await?;
+
+    // Convert <Option<String>> to String, filtering out missing files
+    let mut final_results = HashMap::new();
+
+    for (repo_name, files) in batch_results {
+        let mut repo_files = HashMap::new();
+
+        for (file_path, content) in files {
+            if let Some(content) = content {
+                repo_files.insert(file_path, content);
+            } else {
+                tracing::warn!("File not found: {} in repository {}", file_path, repo_name);
+            }
+        }
+
+        final_results.insert(repo_name, repo_files);
+    }
+
+    tracing::info!("File collection completed");
+    Ok(final_results)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::github::tests::MockGitHubClient;
+
+    fn create_test_processor() -> FileProcessor {
+        let mut github_client = MockGitHubClient::new();
+        github_client.add_file("docs/test.md", "---\ntitle: Test Document\n---\n# Test Document\nThis is a test document.");
+
+        FileProcessor::new(
+            "test-repo".to_string(),
+            Arc::new(github_client),
+        )
+    }
+
+    #[tokio::test]
+    async fn test_process_files_batch() {
+        let mut github_client = MockGitHubClient::new();
+        github_client.add_file("docs/file1.md", "---\ntitle: File 1\n---\n# Content 1");
+        github_client.add_file("docs/file2.md", "---\ntitle: File 2\n---\n# Content 2");
+
+        let processor = FileProcessor::new(
+            "test-repo".to_string(),
+            Arc::new(github_client),
+        );
+
+        let file_paths = vec!["docs/file1.md".to_string(), "docs/file2.md".to_string()];
+        let processed_files = processor.process_files_batch(&file_paths).await.unwrap();
+
+        assert_eq!(processed_files.len(), 2);
+        assert_eq!(processed_files[0].metadata.title, Some("File 1".to_string()));
+        assert_eq!(processed_files[1].metadata.title, Some("File 2".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_process_file_content() {
+        let processor = create_test_processor();
+
+        let content = "---\ntitle: Test Document\n---\n# Test Document\nThis is a test document.";
+        let processed = processor.process_file_content("test.md", content).await.unwrap();
+
+        assert_eq!(processed.metadata.title, Some("Test Document".to_string()));
+        assert!(processed.html_content.contains("<h1>"));
+        assert!(processed.html_content.contains("<p>"));
+    }
+
+    #[tokio::test]
+    async fn test_extract_metadata() {
+        let processor = create_test_processor();
+
+        let mut frontmatter = HashMap::new();
+        frontmatter.insert("title".to_string(), "Test Document".to_string());
+        frontmatter.insert("tags".to_string(), "rust, testing, markdown".to_string());
+
+        let content = "# Heading\n\nThis is test content with multiple words for counting.";
+        let metadata = processor.extract_metadata(&frontmatter, content);
+
+        assert_eq!(metadata.title, Some("Test Document".to_string()));
+        assert_eq!(metadata.tags, vec!["rust", "testing", "markdown"]);
+        assert!(metadata.word_count > 10);
+        assert!(metadata.reading_time_minutes > 0);
     }
 }
