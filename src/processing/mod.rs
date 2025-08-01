@@ -18,7 +18,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use thiserror::Error;
-use tracing::{debug, error, info, warn};
 
 #[derive(Error, Debug)]
 pub enum ProcessingError {
@@ -92,21 +91,21 @@ impl RepositoryProcessor {
     pub async fn process(&self, verbose: bool) -> Result<ProcessingResult, ProcessingError> {
         let start_time = std::time::Instant::now();
 
-        info!("Starting processing of repository {}", self.repository);
+        tracing::info!("Starting processing of repository {}", self.repository);
 
         // Step 1: Discover markdown files
         let markdown_files = self.discover_markdown_files().await?;
 
         if verbose {
-            debug!("Discovered {} markdown files", markdown_files.len());
+            tracing::debug!("Discovered {} markdown files", markdown_files.len());
             for file in &markdown_files {
-                debug!("  - {}", file);
+                tracing::debug!("  - {}", file);
             }
         }
 
         // Step 2: Batch fetch all markdown file contents
         if verbose {
-            debug!("Batch fetching {} markdown files", markdown_files.len());
+            tracing::debug!("Batch fetching {} markdown files", markdown_files.len());
         }
 
         let file_contents = self
@@ -121,7 +120,7 @@ impl RepositoryProcessor {
 
         for file_path in markdown_files {
             if verbose {
-                debug!("Processing file: {}", file_path);
+                tracing::debug!("Processing file: {}", file_path);
             }
 
             match file_contents.get(&file_path) {
@@ -132,19 +131,19 @@ impl RepositoryProcessor {
                             fragments.append(&mut file_fragments);
 
                             if verbose {
-                                debug!("  Generated {} fragments", file_fragments.len());
+                                tracing::debug!("  Generated {} fragments", file_fragments.len());
                             }
                         }
                         Err(e) => {
-                            warn!("Failed to process file {}: {}", file_path, e);
+                            tracing::warn!("Failed to process file {}: {}", file_path, e);
                         }
                     }
                 }
                 Some(None) => {
-                    warn!("File not found: {}", file_path);
+                    tracing::warn!("File not found: {}", file_path);
                 }
                 None => {
-                    warn!("File not included in batch response: {}", file_path);
+                    tracing::warn!("File not included in batch response: {}", file_path);
                 }
             }
         }
@@ -165,7 +164,7 @@ impl RepositoryProcessor {
     }
 
     async fn discover_markdown_files(&self) -> Result<Vec<String>, ProcessingError> {
-        debug!(
+        tracing::debug!(
             "Discovering markdown files for repository {}",
             self.repository
         );
@@ -183,7 +182,7 @@ impl RepositoryProcessor {
                     }
                 }
             } else {
-                warn!(
+                tracing::warn!(
                     "Document configuration for {} does not specify a path or sub-documents",
                     document.title
                 );
@@ -193,26 +192,9 @@ impl RepositoryProcessor {
         discovered_files.sort();
         discovered_files.dedup();
 
-        debug!("Discovered {} markdown files", discovered_files.len());
+        tracing::debug!("Discovered {} markdown files", discovered_files.len());
 
         Ok(discovered_files)
-    }
-
-    #[allow(dead_code)]
-    async fn process_markdown_file(
-        &self,
-        file_path: &str,
-    ) -> Result<Vec<DocumentFragment>, ProcessingError> {
-        debug!("Processing markdown file: {}", file_path);
-
-        // Fetch the file's content
-        let content = self
-            .github
-            .get_file_content(&self.repository, file_path)
-            .await
-            .map_err(ProcessingError::GitHub)?;
-
-        self.process_markdown_file_with_content(file_path, &content)
     }
 
     fn process_markdown_file_with_content(
@@ -220,7 +202,7 @@ impl RepositoryProcessor {
         file_path: &str,
         content: &str,
     ) -> Result<Vec<DocumentFragment>, ProcessingError> {
-        debug!("Processing markdown file with content: {}", file_path);
+        tracing::debug!("Processing markdown file with content: {}", file_path);
 
         let (frontmatter, markdown_content) = self.extract_frontmatter(content);
 
