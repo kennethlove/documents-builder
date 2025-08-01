@@ -32,3 +32,10 @@ uuid = { version = "1", features = ["v4", "serde"] }
 [dev-dependencies]
 mockito = "1.7"
 tempfile = "3.20"
+
+[features]
+integration-tests = []
+
+[[test]]
+name = "test_processing"
+required-features = ["integration-tests"]
