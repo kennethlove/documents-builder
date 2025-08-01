@@ -2,7 +2,6 @@ use crate::processing::pipeline::{
     DiscoveredFile, PipelineError, ProcessingContext, ValidatedFile,
 };
 use std::collections::HashMap;
-use tracing::{debug, warn};
 
 pub struct ContentValidator<'a> {
     context: &'a ProcessingContext,
@@ -19,12 +18,24 @@ impl<'a> ContentValidator<'a> {
     ) -> Result<Vec<ValidatedFile>, PipelineError> {
         let mut validated_files = Vec::new();
 
-        for file in files {
-            let file_path = file.path.clone();
-            match self.validate_file(file).await {
-                Ok(validated) => validated_files.push(validated),
-                Err(e) => {
-                    warn!("Validation failed for file {}: {}", file_path, e);
+        let fetched_files = self.context.github_client.batch_fetch_files(
+            self.context.repository.as_str(),
+            files.iter().map(|f| f.path).collect::<Vec<String>>().as_slice(),
+        ).await?;
+
+        for file in &files {
+            if let Some(content) = fetched_files.get(&file.path) {
+                if content.is_none() {
+                    tracing::warn!("File {} has no content, skipping validation", file.path);
+                    continue;
+                }
+
+                let content = content.as_ref().unwrap();
+                match self.validate_file(file, content).await {
+                    Ok(validated) => validated_files.push(validated),
+                    Err(e) => {
+                        tracing::warn!("Validation failed for file {}: {}", file.path, e);
+                    }
                 }
             }
         }
@@ -32,16 +43,8 @@ impl<'a> ContentValidator<'a> {
         Ok(validated_files)
     }
 
-    async fn validate_file(&self, file: DiscoveredFile) -> Result<ValidatedFile, PipelineError> {
-        debug!("Validating file: {}", file.path);
-
-        // Fetch file content
-        let content = self
-            .context
-            .github_client
-            .get_file_content(&self.context.repository, &file.path)
-            .await
-            .map_err(PipelineError::GitHub)?;
+    async fn validate_file(&self, discovered_file: &DiscoveredFile, content: &str) -> Result<ValidatedFile, PipelineError> {
+        tracing::debug!("Validating file: {}", discovered_file.path);
 
         // Parse frontmatter and content
         let (frontmatter, markdown_content) = self.parse_frontmatter(&content);
@@ -50,7 +53,7 @@ impl<'a> ContentValidator<'a> {
         let validation_warnings = self.validate_content(&markdown_content, &frontmatter);
 
         Ok(ValidatedFile {
-            discovered: file,
+            discovered: discovered_file.clone(),
             content,
             frontmatter,
             markdown_content,
