@@ -5,6 +5,8 @@ pub struct ListAllCommand;
 
 impl ListAllCommand {
     pub async fn execute(client: &GitHubClient) -> Result<(), GitHubError> {
+        client.handle_rate_limits().await?;
+        
         let console = Console::new(false);
         
         console.header(&format!("Listing all repositories in organization: {}", client.organization));

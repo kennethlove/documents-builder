@@ -220,6 +220,8 @@ pub enum AppError {
     IoError(#[from] std::io::Error),
     #[error("JSON Serialization Error: {0}")]
     SerializationError(#[from] serde_json::Error),
+    #[error("GitHub API Error: {0}")]
+    GitHubApiError(#[from] crate::github::GitHubError),
 }
 
 impl IntoResponse for AppError {

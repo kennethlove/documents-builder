@@ -5,7 +5,6 @@ use crate::web::AppError;
 use crate::Console;
 use clap::Args;
 use std::path::PathBuf;
-use tracing::{debug, error, info};
 
 #[derive(Args, Debug)]
 pub struct ExportFragmentsArgs {
@@ -49,10 +48,12 @@ impl ExportFragmentsCommand {
     }
 
     pub async fn execute(&self, client: &GitHubClient) -> Result<(), AppError> {
+        client.handle_rate_limits().await?;
+        
         let console = Console::new(false);
         
         console.header(&format!("Exporting fragments for repository: {}", self.repository));
-        info!("Exporting fragments for repository: {}", self.repository);
+        tracing::info!("Exporting fragments for repository: {}", self.repository);
 
         let output_dir = self
             .output
@@ -64,17 +65,17 @@ impl ExportFragmentsCommand {
         console.verbose(&format!("Include metadata: {}", self.include_metadata));
         console.verbose(&format!("Compress output: {}", self.compress));
         
-        debug!("Export directory: {}", output_dir.display());
-        debug!("Export format: {:?}", self.format);
-        debug!("Include metadata: {}", self.include_metadata);
-        debug!("Compress output: {}", self.compress);
+        tracing::debug!("Export directory: {}", output_dir.display());
+        tracing::debug!("Export format: {:?}", self.format);
+        tracing::debug!("Include metadata: {}", self.include_metadata);
+        tracing::debug!("Compress output: {}", self.compress);
 
         // Step 1: Get repository configuration
         let config_spinner = console.create_spinner("Fetching repository configuration...");
         match client.get_project_config(self.repository.as_str()).await {
             Ok(config) => {
                 console.finish_progress_success(&config_spinner, "Configuration retrieved");
-                info!("Configuration retrieved for repository: {}", self.repository);
+                tracing::info!("Configuration retrieved for repository: {}", self.repository);
 
                 // Step 2: Process repository
                 let process_spinner = console.create_spinner("Processing repository documents...");
@@ -104,7 +105,7 @@ impl ExportFragmentsCommand {
                         };
 
                         console.info(&format!("Exporting {} fragments in {:?} format", fragments.len(), self.format));
-                        info!("Exporting {} fragments", fragments.len());
+                        tracing::info!("Exporting {} fragments", fragments.len());
 
                         // Step 3: Export fragments
                         let export_spinner = console.create_spinner("Exporting fragments...");
@@ -144,7 +145,7 @@ impl ExportFragmentsCommand {
 
                                 console.finish_progress_success(&export_spinner, "Files exported");
                                 console.info(&format!("Fragments exported to: {}", output_dir.display()));
-                                info!("Fragments exported to {}", output_dir.display());
+                                tracing::info!("Fragments exported to {}", output_dir.display());
                             }
                             OutputFormat::Html => {
                                 let html_document = self.generate_complete_html_document(
@@ -156,7 +157,7 @@ impl ExportFragmentsCommand {
                                 
                                 console.finish_progress_success(&export_spinner, "HTML document exported");
                                 console.info(&format!("HTML document exported to: {}", output_file.display()));
-                                info!("HTML document exported to {}", output_file.display());
+                                tracing::info!("HTML document exported to {}", output_file.display());
                             }
                             OutputFormat::Json => {
                                 let export_data = serde_json::json!({
@@ -189,7 +190,7 @@ impl ExportFragmentsCommand {
                                 
                                 console.finish_progress_success(&export_spinner, "JSON document exported");
                                 console.info(&format!("JSON document exported to: {}", output_file.display()));
-                                info!("JSON document exported to {}", &output_file.display());
+                                tracing::info!("JSON document exported to {}", &output_file.display());
                             }
                         }
 
@@ -208,7 +209,7 @@ impl ExportFragmentsCommand {
                         }
 
                         console.success(&format!("Export completed successfully for repository: {}", self.repository));
-                        info!("Export completed successfully for repository: {}", self.repository);
+                        tracing::info!("Export completed successfully for repository: {}", self.repository);
                         Ok(())
                     }
                     Err(e) => {
@@ -223,13 +224,13 @@ impl ExportFragmentsCommand {
                 console.finish_progress_error(&config_spinner, "Configuration not found");
                 console.error(&format!("No documents.toml configuration file found in repository: {}", self.repository));
                 console.info("Make sure the repository has a documents.toml file in its root directory");
-                error!("No configuration file found in repository: {}", self.repository);
+                tracing::error!("No configuration file found in repository: {}", self.repository);
                 return Err(AppError::InternalServerError("Configuration file not found".to_string()));
             }
             Err(e) => {
                 console.finish_progress_error(&config_spinner, "Failed to fetch configuration");
                 console.error(&format!("Error retrieving configuration for repository {}: {}", self.repository, e));
-                error!("Error retrieving configuration for repository {}: {}", self.repository, e);
+                tracing::error!("Error retrieving configuration for repository {}: {}", self.repository, e);
                 return Err(AppError::InternalServerError(format!("Failed to fetch configuration: {}", e)));
             }
         }
@@ -291,8 +292,8 @@ impl ExportFragmentsCommand {
     }
 
     fn compress_output(&self, output_dir: &PathBuf) -> Result<(), AppError> {
-        info!("Compressing output directory: {}", output_dir.display());
-        info!("Not yet implemented.");
+        tracing::info!("Compressing output directory: {}", output_dir.display());
+        tracing::info!("Not yet implemented.");
         Ok(())
     }
 }

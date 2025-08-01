@@ -65,6 +65,8 @@ impl ProcessOrganizationCommand {
     ///
     /// * `Result<(), AppError>` - Ok if the command executed successfully, Err otherwise
     pub async fn execute(&self, client: &GitHubClient) -> Result<(), AppError> {
+        client.handle_rate_limits().await?;
+        
         let console = Console::new(self.verbose);
         
         // Header message
