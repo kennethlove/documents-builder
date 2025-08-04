@@ -300,11 +300,6 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::Arc;
 
-    // Helper function to create a dummy GitHubClient for tests
-    fn create_dummy_github_client() -> MockGitHubClient {
-        MockGitHubClient::new()
-    }
-
     // Helper function to create a test ProcessingContext
     fn create_test_context() -> ProcessingContext {
         let config = crate::ProjectConfig {
@@ -316,11 +311,11 @@ mod tests {
         };
 
         // Wrap the mock client in an Arc
-        let github_client = Arc::new(create_dummy_github_client());
+        let github_client = Arc::new(MockGitHubClient::new());
 
         // Create a repository processor with a dummy GitHub client
         let processor = crate::processing::RepositoryProcessor::new(
-            create_dummy_github_client(),
+            MockGitHubClient::new(),
             config.clone(),
             "test-repo".to_string(),
         );
@@ -355,7 +350,7 @@ mod tests {
         let github_client = Arc::new(mock_client);
 
         let processor = crate::processing::RepositoryProcessor::new(
-            create_dummy_github_client(),
+            MockGitHubClient::new(),
             config.clone(),
             "test-repo".to_string(),
         );

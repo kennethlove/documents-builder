@@ -48,6 +48,8 @@ impl ProcessRepositoryCommand {
     }
 
     pub async fn execute(&self, client: &GitHubClient) -> Result<(), AppError> {
+        client.handle_rate_limits().await?;
+        
         let console = Console::new(self.verbose);
         let output_dir = self
             .output

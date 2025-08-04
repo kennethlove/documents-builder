@@ -71,10 +71,8 @@ processing, and basic documentation serving with search capabilities.
 **Priority: Critical**
 
 - [x] Implement GitHub API client with rate limiting
-- [ ] Create organization repository enumeration
 - [x] Implement `documents.toml` detection across all repositories
 - [ ] Add repository metadata extraction (description, topics, language)
-- [ ] Create repository access permission validation
 
 ### 2.2 Documents.toml Processing
 

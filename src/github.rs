@@ -721,7 +721,7 @@ impl Client for GitHubClient {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "integration-tests"))]
 pub mod tests {
     use crate::github::{Client, GitHubError, RepositoryFile, RepositoryFileContent};
     use async_trait::async_trait;
@@ -862,12 +862,12 @@ pub mod tests {
             file_paths: &[String],
         ) -> Result<HashMap<String, Option<String>>, GitHubError> {
             let mut result = HashMap::new();
-            
+
             for file_path in file_paths {
                 let content = self.file_contents.get(file_path).cloned();
                 result.insert(file_path.clone(), content);
             }
-            
+
             Ok(result)
         }
 
@@ -921,57 +921,58 @@ pub mod tests {
             Ok(result)
         }
     }
+}
 
-    #[cfg(test)]
-    mod batch_content_tests {
-        use super::*;
+#[cfg(test)]
+mod batch_content_tests {
+    use super::*;
+    use super::tests::MockGitHubClient;
 
-        #[tokio::test]
-        async fn test_batch_fetch_config_file_content() {
-            let client = MockGitHubClient::new();
-            
-            let results = client.batch_fetch_config_file_content().await.unwrap();
-            
-            assert_eq!(results.len(), 1);
-            assert_eq!(results[0].repo_name, "test-repo");
-            assert_eq!(results[0].exists, true);
-            assert!(results[0].content.is_some());
-            
-            let content = results[0].content.as_ref().unwrap();
-            assert!(content.contains("Test Project"));
-        }
+    #[tokio::test]
+    async fn test_batch_fetch_config_file_content() {
+        let client = MockGitHubClient::new();
 
-        #[tokio::test]
-        async fn test_batch_fetch_files() {
-            let mut client = MockGitHubClient::new();
-            client.add_file("docs/file1.md", "Content of file 1");
-            client.add_file("docs/file2.md", "Content of file 2");
+        let results = client.batch_fetch_config_file_content().await.unwrap();
 
-            let file_paths = vec!["docs/file1.md".to_string(), "docs/file2.md".to_string(), "docs/missing.md".to_string()];
-            let results = client.batch_fetch_files("test-repo", &file_paths).await.unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].repo_name, "test-repo");
+        assert_eq!(results[0].exists, true);
+        assert!(results[0].content.is_some());
 
-            assert_eq!(results.len(), 3);
-            assert_eq!(results.get("docs/file1.md").unwrap().as_deref(), Some("Content of file 1"));
-            assert_eq!(results.get("docs/file2.md").unwrap().as_deref(), Some("Content of file 2"));
-            assert!(results.get("docs/file3.md").is_none());
-        }
+        let content = results[0].content.as_ref().unwrap();
+        assert!(content.contains("Test Project"));
+    }
 
-        #[tokio::test]
-        async fn test_batch_validate_referenced_files() {
-            let mut client = MockGitHubClient::new();
-            client.add_file("docs/file1.md", "Content of file 1");
-            client.add_file("docs/file2.md", "Content of file 2");
+    #[tokio::test]
+    async fn test_batch_fetch_files() {
+        let mut client = MockGitHubClient::new();
+        client.add_file("docs/file1.md", "Content of file 1");
+        client.add_file("docs/file2.md", "Content of file 2");
 
-            let mut file_references = HashMap::new();
-            file_references.insert("test-repo".to_string(), vec!["docs/file1.md".to_string(), "docs/file2.md".to_string(), "docs/missing.md".to_string()]);
+        let file_paths = vec!["docs/file1.md".to_string(), "docs/file2.md".to_string(), "docs/missing.md".to_string()];
+        let results = client.batch_fetch_files("test-repo", &file_paths).await.unwrap();
 
-            let results = client.batch_validate_referenced_files(&file_references).await.unwrap();
+        assert_eq!(results.len(), 3);
+        assert_eq!(results.get("docs/file1.md").unwrap().as_deref(), Some("Content of file 1"));
+        assert_eq!(results.get("docs/file2.md").unwrap().as_deref(), Some("Content of file 2"));
+        assert!(results.get("docs/file3.md").is_none());
+    }
 
-            assert_eq!(results.len(), 1);
-            let existence_map = results.get("test-repo").unwrap();
-            assert_eq!(existence_map.get("docs/file1.md").unwrap(), &true);
-            assert_eq!(existence_map.get("docs/file2.md").unwrap(), &true);
-            assert_eq!(existence_map.get("docs/missing.md").unwrap(), &false);
-        }
+    #[tokio::test]
+    async fn test_batch_validate_referenced_files() {
+        let mut client = MockGitHubClient::new();
+        client.add_file("docs/file1.md", "Content of file 1");
+        client.add_file("docs/file2.md", "Content of file 2");
+
+        let mut file_references = HashMap::new();
+        file_references.insert("test-repo".to_string(), vec!["docs/file1.md".to_string(), "docs/file2.md".to_string(), "docs/missing.md".to_string()]);
+
+        let results = client.batch_validate_referenced_files(&file_references).await.unwrap();
+
+        assert_eq!(results.len(), 1);
+        let existence_map = results.get("test-repo").unwrap();
+        assert_eq!(existence_map.get("docs/file1.md").unwrap(), &true);
+        assert_eq!(existence_map.get("docs/file2.md").unwrap(), &true);
+        assert_eq!(existence_map.get("docs/missing.md").unwrap(), &false);
     }
 }

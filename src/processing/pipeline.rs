@@ -6,7 +6,6 @@ use crate::processing::validation::ContentValidator;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::info;
 
 #[derive(Debug, thiserror::Error)]
 pub enum PipelineError {
@@ -40,7 +39,7 @@ impl DocumentProcessingPipeline {
     }
 
     pub async fn execute(&self) -> Result<Vec<ProcessedDocument>, PipelineError> {
-        info!(
+        tracing::info!(
             "Starting document processing pipeline for repository: {}",
             self.context.repository
         );
@@ -54,7 +53,7 @@ impl DocumentProcessingPipeline {
         // Step 3, process files
         let processed_documents = self.process_files(validated_files).await?;
 
-        info!(
+        tracing::info!(
             "Pipeline completed: {} documents processed",
             processed_documents.len()
         );
@@ -155,8 +154,6 @@ pub struct ProcessingMetadata {
 mod tests {
     use super::*;
     use crate::github::tests::MockGitHubClient;
-    use crate::github::Client;
-    use mockito;
     use std::collections::HashMap;
     use std::sync::Arc;
 
@@ -185,11 +182,8 @@ mod tests {
             documents,
         };
 
-        // Create a dummy GitHubClient for the RepositoryProcessor
-        let dummy_client = MockGitHubClient::new();
-
         let processor = crate::processing::RepositoryProcessor::new(
-            dummy_client,
+            MockGitHubClient::new(),
             config.clone(),
             "test-repo".to_string(),
         );

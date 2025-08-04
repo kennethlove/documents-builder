@@ -58,6 +58,8 @@ impl ScanOrgCommand {
     ///
     /// * `Result<(), GitHubError>` - Ok if the command executed successfully, Err otherwise
     pub async fn execute(&self, client: &GitHubClient) -> Result<(), GitHubError> {
+        client.handle_rate_limits().await?;
+        
         let console = Console::new(self.verbose);
         
         // Header message

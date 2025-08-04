@@ -50,7 +50,7 @@ pub fn create_app() -> Router {
                 .layer(middleware::from_fn(error_handling_middleware))
                 .layer(
                     TraceLayer::new_for_http()
-                        .make_span_with(|request: &axum::http::Request<_>| {
+                        .make_span_with(|request: &http::Request<_>| {
                             tracing::info_span!(
                                 "http_request",
                                 method = %request.method(),
@@ -62,8 +62,8 @@ pub fn create_app() -> Router {
                             info!("Started processing request");
                         })
                         .on_response(
-                            |response: &axum::http::Response<_>,
-                             latency: std::time::Duration,
+                            |response: &http::Response<_>,
+                             latency: Duration,
                              _span: &tracing::Span| {
                                 info!(
                                     status = %response.status(),
@@ -170,7 +170,7 @@ async fn health_check() -> impl IntoResponse {
     };
 
     info!("Health check requested");
-    axum::Json(response)
+    Json(response)
 }
 
 async fn github_webhook(
@@ -220,6 +220,8 @@ pub enum AppError {
     IoError(#[from] std::io::Error),
     #[error("JSON Serialization Error: {0}")]
     SerializationError(#[from] serde_json::Error),
+    #[error("GitHub API Error: {0}")]
+    GitHubApiError(#[from] crate::github::GitHubError),
 }
 
 impl IntoResponse for AppError {
@@ -245,6 +247,11 @@ impl IntoResponse for AppError {
                 "serialization_error",
                 &msg.to_string(),
             ),
+            AppError::GitHubApiError(msg) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "github_api_error",
+                &msg.to_string(),
+            )
         };
 
         let error_response = ErrorResponse {
