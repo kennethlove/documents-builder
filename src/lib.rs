@@ -11,7 +11,7 @@ pub mod output;
 pub mod processing;
 pub mod web;
 
-pub use config::{Config, ConfigError};
+pub use config::{ApplicationConfig, ApplicationConfigError};
 pub use console::{Console, RepoStatus};
 pub use database::{Database, DatabaseError};
 

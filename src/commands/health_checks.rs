@@ -1,4 +1,4 @@
-use crate::{Config, Console, Database};
+use crate::{ApplicationConfig, Console, Database};
 use clap::Args;
 use tracing::{error, info};
 
@@ -15,7 +15,7 @@ pub struct HealthArgs {
 #[allow(unused_assignments)] // There aren't any unused assignments, but this is to avoid warnings
 pub async fn run(args: HealthArgs) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let console = Console::new(false); // Health checks don't need verbose mode
-    let config = Config::from_env()?;
+    let config = ApplicationConfig::from_env()?;
 
     console.header("System Health Check");
 

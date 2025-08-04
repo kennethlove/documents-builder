@@ -1,4 +1,4 @@
-use crate::Config;
+use crate::ApplicationConfig;
 use crate::ProjectConfig;
 use async_trait::async_trait;
 use octocrab::{Octocrab, OctocrabBuilder};
@@ -159,7 +159,7 @@ pub struct GitHubClient {
 }
 
 impl GitHubClient {
-    pub async fn new(config: &Config) -> Result<Self, GitHubError> {
+    pub async fn new(config: &ApplicationConfig) -> Result<Self, GitHubError> {
         let client = OctocrabBuilder::new()
             .personal_token(config.github_token.clone())
             .build()?;

@@ -2,7 +2,7 @@ use dotenvy::dotenv;
 use std::env;
 
 #[derive(Debug, Clone)]
-pub struct Config {
+pub struct ApplicationConfig {
     pub github_token: String,
     pub github_organization: String,
     pub database_url: String,
@@ -11,40 +11,40 @@ pub struct Config {
 }
 
 #[derive(thiserror::Error, Debug)]
-pub enum ConfigError {
+pub enum ApplicationConfigError {
     #[error("Missing required environment variable: {0}")]
     MissingEnvVar(String),
     #[error("Invalid value for {variable}: {value}")]
     InvalidValue { variable: String, value: String },
 }
 
-impl Config {
-    pub fn from_env() -> Result<Self, ConfigError> {
+impl ApplicationConfig {
+    pub fn from_env() -> Result<Self, ApplicationConfigError> {
         dotenv().ok();
         Self::from_current_env()
     }
 
-    pub fn from_current_env() -> Result<Self, ConfigError> {
+    pub fn from_current_env() -> Result<Self, ApplicationConfigError> {
         let github_token = env::var("GITHUB_TOKEN")
-            .map_err(|_| ConfigError::MissingEnvVar("GITHUB_TOKEN".to_string()))?;
+            .map_err(|_| ApplicationConfigError::MissingEnvVar("GITHUB_TOKEN".to_string()))?;
 
         let github_organization = env::var("GITHUB_ORGANIZATION")
-            .map_err(|_| ConfigError::MissingEnvVar("GITHUB_ORGANIZATION".to_string()))?;
+            .map_err(|_| ApplicationConfigError::MissingEnvVar("GITHUB_ORGANIZATION".to_string()))?;
 
         let database_url = env::var("DATABASE_URL")
-            .map_err(|_| ConfigError::MissingEnvVar("DATABASE_URL".to_string()))?;
+            .map_err(|_| ApplicationConfigError::MissingEnvVar("DATABASE_URL".to_string()))?;
 
         let server_host = env::var("SERVER_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
 
         let server_port = env::var("SERVER_PORT")
             .unwrap_or_else(|_| "3000".to_string())
             .parse()
-            .map_err(|_| ConfigError::InvalidValue {
+            .map_err(|_| ApplicationConfigError::InvalidValue {
                 variable: "SERVER_PORT".to_string(),
                 value: env::var("SERVER_PORT").unwrap_or_default(),
             })?;
 
-        Ok(Config {
+        Ok(ApplicationConfig {
             github_token,
             github_organization,
             database_url,
@@ -53,19 +53,19 @@ impl Config {
         })
     }
 
-    pub fn validate(&self) -> Result<(), ConfigError> {
+    pub fn validate(&self) -> Result<(), ApplicationConfigError> {
         if self.github_token.is_empty() {
-            return Err(ConfigError::MissingEnvVar("GITHUB_TOKEN".to_string()));
+            return Err(ApplicationConfigError::MissingEnvVar("GITHUB_TOKEN".to_string()));
         }
 
         if self.github_organization.is_empty() {
-            return Err(ConfigError::MissingEnvVar(
+            return Err(ApplicationConfigError::MissingEnvVar(
                 "GITHUB_ORGANIZATION".to_string(),
             ));
         }
 
         if self.database_url.is_empty() {
-            return Err(ConfigError::MissingEnvVar("DATABASE_URL".to_string()));
+            return Err(ApplicationConfigError::MissingEnvVar("DATABASE_URL".to_string()));
         }
 
         Ok(())
@@ -91,14 +91,14 @@ mod tests {
             env::remove_var("SERVER_PORT");
         }
 
-        let result = Config::from_current_env();
+        let result = ApplicationConfig::from_current_env();
         dbg!(&result);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_config_validation() {
-        let config = Config {
+        let config = ApplicationConfig {
             github_token: "".to_string(),
             github_organization: "test-org".to_string(),
             database_url: "postgres://localhost/test".to_string(),

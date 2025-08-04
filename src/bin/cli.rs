@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use documents::Config;
+use documents::ApplicationConfig;
 use documents::commands::export_fragments::{ExportFragmentsArgs, ExportFragmentsCommand};
 use documents::commands::health_checks::{HealthArgs, run as health_check};
 use documents::commands::list_all::ListAllCommand;
@@ -62,7 +62,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .try_init();
 
     // Load configuration
-    let config = Config::from_env()?;
+    let config = ApplicationConfig::from_env()?;
 
     // Initialize GitHub client
     let github = GitHubClient::new(&config).await?;
