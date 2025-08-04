@@ -20,7 +20,7 @@ impl<'a> ContentValidator<'a> {
 
         let fetched_files = self.context.github_client.batch_fetch_files(
             self.context.repository.as_str(),
-            files.iter().map(|f| f.path).collect::<Vec<String>>().as_slice(),
+            files.iter().map(|f| f.path.clone()).collect::<Vec<String>>().as_slice(),
         ).await?;
 
         for file in &files {
@@ -54,7 +54,7 @@ impl<'a> ContentValidator<'a> {
 
         Ok(ValidatedFile {
             discovered: discovered_file.clone(),
-            content,
+            content: content.to_string(),
             frontmatter,
             markdown_content,
             validation_warnings,
