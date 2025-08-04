@@ -78,26 +78,7 @@ processing, and basic documentation serving with search capabilities.
 
 **Priority: Critical**
 
-- [ ] Define `documents.toml` schema specification:
-
-```toml
-[project]
-name = "Project Name"
-description = "Project description"
-
-[sources]
-# Glob patterns for markdown files
-include = ["docs/**/*.md", "README.md", "CHANGELOG.md"]
-exclude = ["docs/internal/**"]
-
-[settings]
-# Optional: custom title patterns, metadata extraction
-title_from_frontmatter = true
-auto_title_from_filename = true
-```
-
 - [ ] Implement TOML parsing with validation
-- [ ] Add glob pattern matching for file discovery
 - [ ] Create file path normalization and validation
 - [ ] Add error handling for malformed configurations
 
