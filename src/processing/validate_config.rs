@@ -80,6 +80,30 @@ pub enum ValidationError {
         index: usize,
         path: String,
     },
+
+    #[error("Document key '{key}' contains invalid characters for TOML keys")]
+    InvalidTomlKey { key: String },
+
+    #[error("Document title contains characters that may cause TOML parsing issues: {title}")]
+    ProblematicTitle { title: String },
+
+    #[error("Project name contains characters that may cause TOML parsing issues: {name}")]
+    ProblematicProjectName { name: String },
+}
+
+impl ValidationError {
+    pub fn with_line_context(self, line_info: Option<(usize, String)>) -> ValidationErrorWithContext {
+        ValidationErrorWithContext {
+            error: self,
+            line_info,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct ValidationErrorWithContext {
+    pub error: ValidationError,
+    pub line_info: Option<(usize, String)>,
 }
 
 #[derive(Debug)]
@@ -146,6 +170,9 @@ impl<'a> ConfigValidator<'a> {
     pub async fn validate(&self, config: &ProjectConfig) -> ValidationResult {
         let mut result = ValidationResult::new();
 
+        // Validate the keys
+        self.validate_toml_keys(config, &mut result);
+
         // Validate project section
         self.validate_project(config, &mut result);
 
@@ -155,10 +182,37 @@ impl<'a> ConfigValidator<'a> {
         result
     }
 
-    fn validate_project(&self, config: &ProjectConfig, result: &mut ValidationResult) {
+    fn validate_toml_keys(&self, config: &ProjectConfig, result: &mut ValidationResult) {
+        for key in config.documents.keys() {
+            if !Self::validate_toml_key(key) {
+                result.add_error(ValidationError::InvalidTomlKey {
+                    key: key.to_string(),
+                });
+            }
+        }
+    }
+
+    fn validate_toml_key(key: &str) -> bool {
+        // TOML keys can contain more than just identifiers, but for safety, we might
+        // want to be more restrictive.
+
+        !key.is_empty() &&
+        !key.starts_with('.') &&
+        !key.ends_with('.') &&
+        !key.contains("..") &&
+        key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c  == '-')
+    }
+
+    fn validate_project(config: &ProjectConfig, result: &mut ValidationResult) {
         if config.project.name.trim().is_empty() {
             result.add_error(ValidationError::MissingProjectField {
                 field: "name".to_string(),
+            });
+        }
+
+        if config.project.name.contains('"') || config.project.name.contains('\\') || config.project.name.contains('\n') {
+            result.add_error(ValidationError::ProblematicProjectName {
+                name: config.project.name.clone(),
             });
         }
 
@@ -278,6 +332,12 @@ impl<'a> ConfigValidator<'a> {
                 field: "title".to_string(),
             });
         }
+        // Check for valid title characters
+        if document.title.contains('"') || document.title.contains('\\') || document.title.contains('\n') {
+            result.add_error(ValidationError::ProblematicTitle {
+                title: document.title.clone(),
+            });
+        }
 
         // Check that document has either path or sub_documents
         let has_path = document.path.is_some();
@@ -384,11 +444,11 @@ impl<'a> ConfigValidator<'a> {
         }
 
         // Check for invalid path components
-        if path_str.contains("..") {
+        if let Some(invalid_reason) = Self::validate_path_characters(&path_str) {
             result.add_error(ValidationError::InvalidPath {
                 key: key.to_string(),
                 path: path_str.clone(),
-                reason: "parent directory references ('..') are not allowed".to_string(),
+                reason: invalid_reason,
             });
         }
 
@@ -508,6 +568,31 @@ impl<'a> ConfigValidator<'a> {
                 }
             }
         }
+    }
+
+    /// Check for invalid characters in the path string.
+    /// This includes checking for characters that are not allowed in identifiers and reserved
+    /// names on Windows.
+    fn validate_path_characters(path_str: &str) -> Option<String> {
+        let invalid_chars = ['<', '>', ':', '"', '|', '?', '*'];
+        if let Some(invalid_char) = path_str.chars().find(|c| invalid_chars.contains(c)) {
+            return Some(format!("contains invalid character: '{}'", invalid_char));
+        }
+
+        let reserved_names = ["CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4",
+                                       "COM5", "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2",
+                                       "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"];
+
+        let filename = std::path::Path::new(path_str)
+            .file_name()
+            .and_then(|f| f.to_str())
+            .unwrap_or("");
+
+        if reserved_names.contains(&filename.to_uppercase().as_str()) {
+            return Some(format!("uses a reserved filename: '{}'", filename));
+        }
+
+        None
     }
 }
 
