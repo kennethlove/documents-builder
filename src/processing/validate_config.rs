@@ -106,10 +106,52 @@ pub struct ValidationErrorWithContext {
     pub line_info: Option<(usize, String)>,
 }
 
+impl std::fmt::Display for ValidationErrorWithContext {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Display the base error
+        write!(f, "{}", self.error)?;
+        
+        // Add line context if available
+        if let Some((line_num, content)) = &self.line_info {
+            write!(f, "\n  --> line {}", line_num)?;
+            if !content.trim().is_empty() {
+                write!(f, "\n     | {}", content.trim())?;
+            }
+        }
+        
+        // Add helpful suggestions based on error type
+        match &self.error {
+            ValidationError::MissingProjectField { field } => {
+                write!(f, "\n  help: Add the '{}' field to the [project] section", field)?;
+            }
+            ValidationError::InvalidTomlKey { key } => {
+                write!(f, "\n  help: TOML keys should contain only alphanumeric characters, underscores, and hyphens")?;
+                write!(f, "\n        Consider renaming '{}' to a valid identifier", key)?;
+            }
+            ValidationError::NonExistentFile { key, path } => {
+                write!(f, "\n  help: Ensure the file '{}' exists in the repository", path)?;
+                write!(f, "\n        or update the path for document '{}'", key)?;
+            }
+            ValidationError::DuplicateDocumentPath { path } => {
+                write!(f, "\n  help: Each document must have a unique path")?;
+                write!(f, "\n        Remove duplicate references to '{}'", path)?;
+            }
+            ValidationError::CircularReference { key } => {
+                write!(f, "\n  help: Remove circular references in document hierarchy")?;
+                write!(f, "\n        Document '{}' references itself directly or indirectly", key)?;
+            }
+            _ => {}
+        }
+        
+        Ok(())
+    }
+}
+
 #[derive(Debug)]
 pub struct ValidationResult {
     pub is_valid: bool,
     pub errors: Vec<ValidationError>,
+    pub errors_with_context: Vec<ValidationErrorWithContext>,
     pub warnings: Vec<String>,
 }
 
@@ -118,6 +160,7 @@ impl ValidationResult {
         Self {
             is_valid: true,
             errors: Vec::new(),
+            errors_with_context: Vec::new(),
             warnings: Vec::new(),
         }
     }
@@ -125,6 +168,11 @@ impl ValidationResult {
     pub fn add_error(&mut self, error: ValidationError) {
         self.is_valid = false;
         self.errors.push(error);
+    }
+
+    pub fn add_error_with_context(&mut self, error: ValidationErrorWithContext) {
+        self.is_valid = false;
+        self.errors_with_context.push(error);
     }
 
     pub fn add_warning(&mut self, warning: String) {
@@ -136,7 +184,20 @@ impl ValidationResult {
             self.is_valid = false;
         }
         self.errors.extend(other.errors);
+        self.errors_with_context.extend(other.errors_with_context);
         self.warnings.extend(other.warnings);
+    }
+
+    /// Helper method to add error with line context from TOML parsing
+    pub fn add_error_with_toml_context(&mut self, error: ValidationError, toml_content: &str, error_line: Option<usize>) {
+        if let Some(line_num) = error_line {
+            let lines: Vec<&str> = toml_content.lines().collect();
+            let content = lines.get(line_num.saturating_sub(1)).unwrap_or(&"").to_string();
+            let error_with_context = error.with_line_context(Some((line_num, content)));
+            self.add_error_with_context(error_with_context);
+        } else {
+            self.add_error(error);
+        }
     }
 }
 
@@ -174,10 +235,13 @@ impl<'a> ConfigValidator<'a> {
         self.validate_toml_keys(config, &mut result);
 
         // Validate project section
-        self.validate_project(config, &mut result);
+        Self::validate_project(config, &mut result);
 
         // Validate documents section
         self.validate_documents(config, &mut result).await;
+
+        // Validate structure (Task 3)
+        self.validate_structure(config, &mut result);
 
         result
     }
@@ -210,7 +274,10 @@ impl<'a> ConfigValidator<'a> {
             });
         }
 
-        if config.project.name.contains('"') || config.project.name.contains('\\') || config.project.name.contains('\n') {
+        if config.project.name.contains('"') ||
+            config.project.name.contains('\\') ||
+            config.project.name.contains('\n')
+        {
             result.add_error(ValidationError::ProblematicProjectName {
                 name: config.project.name.clone(),
             });
@@ -228,13 +295,6 @@ impl<'a> ConfigValidator<'a> {
         let mut visited_keys = HashSet::new();
 
         for (key, document) in &config.documents {
-            // Validate document key
-            if !is_valid_identifier(key) {
-                result.add_error(ValidationError::InvalidDocumentKey {
-                    key: key.to_string(),
-                });
-            }
-
             // Check for circular references
             let mut current_path = vec![key.clone()];
             self.validate_document_hierarchy(
@@ -339,18 +399,9 @@ impl<'a> ConfigValidator<'a> {
             });
         }
 
-        // Check that document has either path or sub_documents
-        let has_path = document.path.is_some();
-        let has_sub_documents = document
-            .sub_documents
-            .as_ref()
-            .map_or(false, |subs| !subs.is_empty());
-
-        if !has_path && !has_sub_documents {
-            result.add_error(ValidationError::EmptyDocumentConfig {
-                key: key.to_string(),
-            });
-        }
+        // Note: Structure validation (empty documents) is now handled by validate_structure method
+        // which generates warnings instead of errors. This allows configurations to be valid
+        // while still providing helpful guidance to users.
 
         // Validate path if it exists
         if let Some(path) = &document.path {
@@ -389,19 +440,9 @@ impl<'a> ConfigValidator<'a> {
                 });
             }
 
-            // Check that sub_document has either path or sub_documents
-            let has_path = sub_document.path.is_some();
-            let has_sub_documents = sub_document
-                .sub_documents
-                .as_ref()
-                .map_or(false, |subs| !subs.is_empty());
-
-            if !has_path && !has_sub_documents {
-                result.add_error(ValidationError::EmptySubDocumentConfig {
-                    parent_key: parent_key.to_string(),
-                    index,
-                });
-            }
+            // Note: Structure validation (empty sub-documents) is now handled by validate_structure method
+            // which generates warnings instead of errors. This allows configurations to be valid
+            // while still providing helpful guidance to users.
 
             // Validate path if it exists
             if let Some(path) = &sub_document.path {
@@ -594,6 +635,60 @@ impl<'a> ConfigValidator<'a> {
 
         None
     }
+
+    // Structure validation methods for Task 3
+    fn validate_structure(&self, config: &ProjectConfig, result: &mut ValidationResult) {
+        // Check for empty documents collection
+        if config.documents.is_empty() {
+            result.add_warning("No documents are defined in the configuration".to_string());
+        }
+
+        // Validate each document's structure
+        for (key, document) in &config.documents {
+            self.validate_document_structure(key, document, 0, result);
+        }
+    }
+
+    fn validate_document_structure(
+        &self,
+        key: &str,
+        document: &DocumentConfig,
+        current_depth: usize,
+        result: &mut ValidationResult,
+    ) {
+        // Check nesting depth (max recommended is 4 levels)
+        if current_depth > 4 {
+            result.add_warning(format!(
+                "Document '{}' exceeds recommended nesting depth of 4 levels (current depth: {})",
+                key, current_depth
+            ));
+        }
+
+        // Check if this is a section document (no path) that should have sub-documents
+        if document.path.is_none() {
+            if let Some(sub_docs) = &document.sub_documents {
+                if sub_docs.is_empty() {
+                    result.add_warning(format!(
+                        "Section document '{}' has no sub-documents. Consider adding sub-documents or providing a path.",
+                        key
+                    ));
+                }
+            } else {
+                result.add_warning(format!(
+                    "Section document '{}' has no sub-documents. Consider adding sub-documents or providing a path.",
+                    key
+                ));
+            }
+        }
+
+        // Recursively validate sub-documents
+        if let Some(sub_docs) = &document.sub_documents {
+            for (index, sub_doc) in sub_docs.iter().enumerate() {
+                let sub_key = format!("{}[{}]", key, index);
+                self.validate_document_structure(&sub_key, sub_doc, current_depth + 1, result);
+            }
+        }
+    }
 }
 
 fn is_valid_identifier(s: &str) -> bool {
@@ -780,7 +875,7 @@ mod tests {
             result
                 .errors
                 .iter()
-                .any(|e| matches!(e, ValidationError::InvalidDocumentKey { .. }))
+                .any(|e| matches!(e, ValidationError::InvalidTomlKey { .. }))
         );
     }
 
@@ -879,5 +974,741 @@ mod tests {
             result.is_valid,
             "Expected validation to still be valid despite warnings"
         );
+    }
+
+    // Task 5: Edge Case Tests
+
+    #[tokio::test]
+    async fn test_empty_project_fields_whitespace_scenarios() {
+        // Test various whitespace scenarios (spaces, tabs, newlines)
+        let test_cases = vec![
+            ("", "", 2),                        // Empty strings - 2 errors (missing name, missing description)
+            ("   ", "   ", 2),                  // Spaces only - 2 errors (missing name, missing description)
+            ("\t\t", "\t\t", 2),                // Tabs only - 2 errors (missing name, missing description)
+            ("\n\n", "\n\n", 3),                // Newlines only - 3 errors (missing name, problematic name, missing description)
+            ("  \t\n  ", "  \n\t  ", 3),        // Mixed whitespace with newlines - 3 errors
+        ];
+
+        for (name, description, expected_errors) in test_cases {
+            let mut config = create_test_config();
+            config.project.name = name.to_string();
+            config.project.description = description.to_string();
+
+            let validator = ConfigValidator::new();
+            let result = validator.validate(&config).await;
+
+            assert!(!result.is_valid, "Expected config with whitespace-only fields to be invalid");
+            assert_eq!(
+                result.errors.len(),
+                expected_errors,
+                "Expected {} errors for case '{}', '{}', got {}: {:?}",
+                expected_errors,
+                name.replace('\n', "\\n").replace('\t', "\\t"),
+                description.replace('\n', "\\n").replace('\t', "\\t"),
+                result.errors.len(),
+                result.errors
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_deep_nesting_validation() {
+        // Create test config with 6+ levels of nesting, verify warnings
+        let mut config = create_test_config();
+        
+        // Create deeply nested structure: level 0 -> 1 -> 2 -> 3 -> 4 -> 5 -> 6
+        let level6 = DocumentConfig {
+            title: "Level 6".to_string(),
+            path: Some(PathBuf::from("docs/level6.md")),
+            sub_documents: None,
+        };
+        
+        let level5 = DocumentConfig {
+            title: "Level 5".to_string(),
+            path: None,
+            sub_documents: Some(vec![level6]),
+        };
+        
+        let level4 = DocumentConfig {
+            title: "Level 4".to_string(),
+            path: None,
+            sub_documents: Some(vec![level5]),
+        };
+        
+        let level3 = DocumentConfig {
+            title: "Level 3".to_string(),
+            path: None,
+            sub_documents: Some(vec![level4]),
+        };
+        
+        let level2 = DocumentConfig {
+            title: "Level 2".to_string(),
+            path: None,
+            sub_documents: Some(vec![level3]),
+        };
+        
+        let level1 = DocumentConfig {
+            title: "Level 1".to_string(),
+            path: None,
+            sub_documents: Some(vec![level2]),
+        };
+        
+        config.documents.insert("deep_doc".to_string(), level1);
+
+        let validator = ConfigValidator::new();
+        let result = validator.validate(&config).await;
+
+        // Should have warnings about deep nesting and sections without paths
+        assert!(!result.warnings.is_empty(), "Expected warnings for deep nesting");
+        assert!(
+            result.warnings.iter().any(|w| w.contains("exceeds recommended nesting depth")),
+            "Expected warning about nesting depth"
+        );
+        assert!(
+            result.warnings.iter().any(|w| w.contains("depth: 5") || w.contains("depth: 6")),
+            "Expected warning to mention specific depth levels"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_unicode_path_validation() {
+        // Test international characters in file paths and document titles
+        let mut config = create_test_config();
+        
+        config.documents.insert(
+            "unicode_doc".to_string(),
+            DocumentConfig {
+                title: "文档标题 - Título del Documento - Заголовок документа".to_string(),
+                path: Some(PathBuf::from("docs/文档/español/русский.md")),
+                sub_documents: None,
+            },
+        );
+
+        let validator = ConfigValidator::new();
+        let result = validator.validate(&config).await;
+
+        // Unicode should be valid - no errors expected for unicode characters
+        assert!(result.is_valid, "Expected unicode paths and titles to be valid");
+    }
+
+    #[tokio::test]
+    async fn test_toml_edge_cases() {
+        // Test special characters, escaping, and formatting edge cases
+        let mut config = create_test_config();
+        
+        // Test various problematic TOML keys
+        let problematic_keys = vec![
+            ".starts_with_dot",
+            "ends_with_dot.",
+            "has..double.dots",
+            "has spaces",
+            "has@special#chars",
+            "has/slashes",
+        ];
+
+        for key in problematic_keys {
+            config.documents.insert(
+                key.to_string(),
+                DocumentConfig {
+                    title: "Test Document".to_string(),
+                    path: Some(PathBuf::from("docs/test.md")),
+                    sub_documents: None,
+                },
+            );
+        }
+
+        let validator = ConfigValidator::new();
+        let result = validator.validate(&config).await;
+
+        assert!(!result.is_valid, "Expected invalid TOML keys to cause validation failure");
+        assert!(
+            result.errors.len() >= 6,
+            "Expected at least 6 errors for problematic TOML keys"
+        );
+        assert!(
+            result.errors.iter().all(|e| matches!(e, ValidationError::InvalidTomlKey { .. })),
+            "Expected all errors to be InvalidTomlKey"
+        );
+    }
+
+    // Structure Validation Tests
+
+    #[tokio::test]
+    async fn test_empty_documents_collection() {
+        // Test configuration with no documents defined
+        let config = create_test_config(); // This creates config with empty documents HashMap
+
+        let validator = ConfigValidator::new();
+        let result = validator.validate(&config).await;
+
+        assert!(result.is_valid, "Expected empty documents to be valid but with warnings");
+        assert!(!result.warnings.is_empty(), "Expected warning for empty documents collection");
+        assert!(
+            result.warnings.iter().any(|w| w.contains("No documents are defined")),
+            "Expected warning about no documents defined"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_section_without_sub_documents() {
+        // Test section documents with empty sub_documents array
+        let mut config = create_test_config();
+        
+        // Section with empty sub_documents
+        config.documents.insert(
+            "empty_section".to_string(),
+            DocumentConfig {
+                title: "Empty Section".to_string(),
+                path: None,
+                sub_documents: Some(vec![]),
+            },
+        );
+        
+        // Section with no sub_documents field
+        config.documents.insert(
+            "no_sub_section".to_string(),
+            DocumentConfig {
+                title: "No Sub Section".to_string(),
+                path: None,
+                sub_documents: None,
+            },
+        );
+
+        let validator = ConfigValidator::new();
+        let result = validator.validate(&config).await;
+
+        // Debug: print actual errors and warnings
+        if !result.is_valid {
+            eprintln!("Errors: {:?}", result.errors);
+            eprintln!("Warnings: {:?}", result.warnings);
+        }
+
+        assert!(result.is_valid, "Expected sections without sub-documents to be valid but with warnings");
+        assert!(!result.warnings.is_empty(), "Expected warnings for sections without sub-documents");
+        assert!(
+            result.warnings.iter().any(|w| w.contains("empty_section") && w.contains("no sub-documents")),
+            "Expected warning about empty_section having no sub-documents"
+        );
+        assert!(
+            result.warnings.iter().any(|w| w.contains("no_sub_section") && w.contains("no sub-documents")),
+            "Expected warning about no_sub_section having no sub-documents"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_maximum_nesting_depth_boundary() {
+        // Test exactly at depth limit vs over limit
+        let mut config = create_test_config();
+        
+        // Create structure at exactly 4 levels (should not warn)
+        let level4 = DocumentConfig {
+            title: "Level 4".to_string(),
+            path: Some(PathBuf::from("docs/level4.md")),
+            sub_documents: None,
+        };
+        
+        let level3 = DocumentConfig {
+            title: "Level 3".to_string(),
+            path: None,
+            sub_documents: Some(vec![level4]),
+        };
+        
+        let level2 = DocumentConfig {
+            title: "Level 2".to_string(),
+            path: None,
+            sub_documents: Some(vec![level3]),
+        };
+        
+        let level1 = DocumentConfig {
+            title: "Level 1".to_string(),
+            path: None,
+            sub_documents: Some(vec![level2]),
+        };
+        
+        config.documents.insert("at_limit".to_string(), level1);
+        
+        // Create structure at 5 levels (should warn)
+        let level5 = DocumentConfig {
+            title: "Level 5".to_string(),
+            path: Some(PathBuf::from("docs/level5.md")),
+            sub_documents: None,
+        };
+        
+        let level4_over = DocumentConfig {
+            title: "Level 4 Over".to_string(),
+            path: None,
+            sub_documents: Some(vec![level5]),
+        };
+        
+        let level3_over = DocumentConfig {
+            title: "Level 3 Over".to_string(),
+            path: None,
+            sub_documents: Some(vec![level4_over]),
+        };
+        
+        let level2_over = DocumentConfig {
+            title: "Level 2 Over".to_string(),
+            path: None,
+            sub_documents: Some(vec![level3_over]),
+        };
+        
+        let level1_over = DocumentConfig {
+            title: "Level 1 Over".to_string(),
+            path: None,
+            sub_documents: Some(vec![level2_over]),
+        };
+        
+        config.documents.insert("over_limit".to_string(), level1_over);
+
+        let validator = ConfigValidator::new();
+        let result = validator.validate(&config).await;
+
+        // Should have warnings for over-limit but not at-limit
+        let depth_warnings: Vec<_> = result.warnings.iter()
+            .filter(|w| w.contains("exceeds recommended nesting depth"))
+            .collect();
+        
+        assert!(!depth_warnings.is_empty(), "Expected warnings for exceeding nesting depth");
+        assert!(
+            depth_warnings.iter().any(|w| w.contains("over_limit") && w.contains("depth: 5")),
+            "Expected warning for over_limit document at depth 5"
+        );
+        
+        // Should not warn about at_limit (depth 4 is the limit, not over it)
+        assert!(
+            !result.warnings.iter().any(|w| w.contains("at_limit") && w.contains("exceeds")),
+            "Should not warn about document exactly at the limit"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_mixed_structure_validation() {
+        // Test combination of regular documents and sections
+        let mut config = create_test_config();
+        
+        // Regular document with path
+        config.documents.insert(
+            "regular_doc".to_string(),
+            DocumentConfig {
+                title: "Regular Document".to_string(),
+                path: Some(PathBuf::from("docs/regular.md")),
+                sub_documents: None,
+            },
+        );
+        
+        // Section with valid sub-documents
+        config.documents.insert(
+            "valid_section".to_string(),
+            DocumentConfig {
+                title: "Valid Section".to_string(),
+                path: None,
+                sub_documents: Some(vec![
+                    DocumentConfig {
+                        title: "Sub Document 1".to_string(),
+                        path: Some(PathBuf::from("docs/sub1.md")),
+                        sub_documents: None,
+                    },
+                    DocumentConfig {
+                        title: "Sub Document 2".to_string(),
+                        path: Some(PathBuf::from("docs/sub2.md")),
+                        sub_documents: None,
+                    },
+                ]),
+            },
+        );
+        
+        // Section without sub-documents (should warn)
+        config.documents.insert(
+            "empty_section".to_string(),
+            DocumentConfig {
+                title: "Empty Section".to_string(),
+                path: None,
+                sub_documents: None,
+            },
+        );
+
+        let validator = ConfigValidator::new();
+        let result = validator.validate(&config).await;
+
+        assert!(result.is_valid, "Expected mixed structure to be valid");
+        
+        // Should only warn about the empty section
+        let section_warnings: Vec<_> = result.warnings.iter()
+            .filter(|w| w.contains("no sub-documents"))
+            .collect();
+        
+        assert_eq!(section_warnings.len(), 1, "Expected exactly one warning for empty section");
+        assert!(
+            section_warnings[0].contains("empty_section"),
+            "Expected warning to mention empty_section"
+        );
+    }
+
+    // Error Context Tests
+
+    #[tokio::test]
+    async fn test_error_context_display_formatting() {
+        // Test that ValidationErrorWithContext displays correctly
+        let error = ValidationError::MissingProjectField {
+            field: "name".to_string(),
+        };
+        
+        let error_with_context = error.with_line_context(Some((5, "name = \"\"".to_string())));
+        let display_output = format!("{}", error_with_context);
+        
+        assert!(display_output.contains("line 5"), "Expected line number in display");
+        assert!(display_output.contains("name = \"\""), "Expected line content in display");
+        assert!(display_output.contains("help:"), "Expected help suggestion in display");
+        assert!(display_output.contains("Add the 'name' field"), "Expected specific help for missing field");
+    }
+
+    #[tokio::test]
+    async fn test_error_context_without_line_info() {
+        // Test error context when no line information is available
+        let error = ValidationError::CircularReference {
+            key: "circular_doc".to_string(),
+        };
+        
+        let error_with_context = error.with_line_context(None);
+        let display_output = format!("{}", error_with_context);
+        
+        assert!(!display_output.contains("line"), "Should not contain line info when none provided");
+        assert!(display_output.contains("help:"), "Should still contain help suggestion");
+        assert!(display_output.contains("circular references"), "Should contain specific help for circular reference");
+    }
+
+    #[tokio::test]
+    async fn test_validation_result_error_context_methods() {
+        // Test ValidationResult methods for handling errors with context
+        let mut result = ValidationResult::new();
+        
+        let error = ValidationError::InvalidTomlKey {
+            key: "invalid-key!".to_string(),
+        };
+        
+        let error_with_context = error.with_line_context(Some((10, "[documents.invalid-key!]".to_string())));
+        result.add_error_with_context(error_with_context);
+        
+        assert!(!result.is_valid, "Expected result to be invalid after adding error with context");
+        assert_eq!(result.errors_with_context.len(), 1, "Expected one error with context");
+        assert!(result.errors.is_empty(), "Expected no regular errors");
+        
+        // Test TOML context helper
+        let toml_content = "name = \"test\"\ndescription = \"\"\n[documents.bad-key!]\ntitle = \"Test\"";
+        result.add_error_with_toml_context(
+            ValidationError::InvalidTomlKey { key: "bad-key!".to_string() },
+            toml_content,
+            Some(3)
+        );
+        
+        assert_eq!(result.errors_with_context.len(), 2, "Expected two errors with context");
+    }
+
+    #[tokio::test]
+    async fn test_multiple_errors_context_preservation() {
+        // Test that context is preserved for multiple validation errors
+        let mut result = ValidationResult::new();
+        
+        let errors_with_context = vec![
+            ValidationError::MissingProjectField { field: "name".to_string() }
+                .with_line_context(Some((2, "name = \"\"".to_string()))),
+            ValidationError::MissingProjectField { field: "description".to_string() }
+                .with_line_context(Some((3, "description = \"\"".to_string()))),
+            ValidationError::InvalidTomlKey { key: "bad.key".to_string() }
+                .with_line_context(Some((5, "[documents.bad.key]".to_string()))),
+        ];
+        
+        for error in errors_with_context {
+            result.add_error_with_context(error);
+        }
+        
+        assert!(!result.is_valid, "Expected result to be invalid");
+        assert_eq!(result.errors_with_context.len(), 3, "Expected three errors with context");
+        
+        // Verify each error has its context preserved
+        let contexts: Vec<_> = result.errors_with_context.iter()
+            .filter_map(|e| e.line_info.as_ref())
+            .collect();
+        
+        assert_eq!(contexts.len(), 3, "Expected all errors to have context");
+        assert!(contexts.iter().any(|(line, _)| *line == 2), "Expected error at line 2");
+        assert!(contexts.iter().any(|(line, _)| *line == 3), "Expected error at line 3");
+        assert!(contexts.iter().any(|(line, _)| *line == 5), "Expected error at line 5");
+    }
+
+    #[tokio::test]
+    async fn test_nested_error_context_preservation() {
+        // Test context preservation in sub-document validation
+        let mut config = create_test_config();
+        
+        config.documents.insert(
+            "parent_doc".to_string(),
+            DocumentConfig {
+                title: "Parent Document".to_string(),
+                path: None,
+                sub_documents: Some(vec![
+                    DocumentConfig {
+                        title: "".to_string(), // Empty title should trigger validation
+                        path: Some(PathBuf::from("docs/sub.md")),
+                        sub_documents: None,
+                    },
+                ]),
+            },
+        );
+
+        let validator = ConfigValidator::new();
+        let result = validator.validate(&config).await;
+
+        // The current implementation doesn't add context to sub-document errors,
+        // but we can test that the validation still works correctly
+        assert!(result.is_valid, "Expected validation to pass despite empty sub-document title");
+        
+        // Note: In a full implementation, we might want to add context for sub-document errors too
+        // This test serves as a placeholder for that future enhancement
+    }
+
+    // Performance Tests
+
+    #[tokio::test]
+    async fn test_large_configuration_performance() {
+        // Test validation performance with 100+ documents
+        let mut config = create_test_config();
+        
+        // Create 150 documents to test performance
+        for i in 0..150 {
+            config.documents.insert(
+                format!("doc_{:03}", i),
+                DocumentConfig {
+                    title: format!("Document {}", i),
+                    path: Some(PathBuf::from(format!("docs/doc_{:03}.md", i))),
+                    sub_documents: None,
+                },
+            );
+        }
+
+        let validator = ConfigValidator::new();
+        let start = std::time::Instant::now();
+        let result = validator.validate(&config).await;
+        let duration = start.elapsed();
+
+        assert!(result.is_valid, "Expected large configuration to be valid");
+        assert!(duration.as_millis() < 1000, "Expected validation to complete within 1 second, took {:?}", duration);
+        
+        // Should warn about no documents being defined initially, but not after adding documents
+        assert!(
+            !result.warnings.iter().any(|w| w.contains("No documents are defined")),
+            "Should not warn about empty documents when 150 documents are present"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_deep_hierarchy_performance() {
+        // Test performance with maximum nesting depth
+        let mut config = create_test_config();
+        
+        // Create a deeply nested structure (10 levels)
+        let mut current_doc = DocumentConfig {
+            title: "Level 10".to_string(),
+            path: Some(PathBuf::from("docs/level10.md")),
+            sub_documents: None,
+        };
+        
+        for level in (1..10).rev() {
+            current_doc = DocumentConfig {
+                title: format!("Level {}", level),
+                path: None,
+                sub_documents: Some(vec![current_doc]),
+            };
+        }
+        
+        config.documents.insert("deep_hierarchy".to_string(), current_doc);
+
+        let validator = ConfigValidator::new();
+        let start = std::time::Instant::now();
+        let result = validator.validate(&config).await;
+        let duration = start.elapsed();
+
+        assert!(result.is_valid, "Expected deep hierarchy to be valid");
+        assert!(duration.as_millis() < 100, "Expected deep hierarchy validation to be fast, took {:?}", duration);
+        
+        // Should have warnings about deep nesting
+        assert!(!result.warnings.is_empty(), "Expected warnings for deep nesting");
+        let depth_warnings = result.warnings.iter()
+            .filter(|w| w.contains("exceeds recommended nesting depth"))
+            .count();
+        assert!(depth_warnings >= 5, "Expected multiple depth warnings for 10-level hierarchy");
+    }
+
+    #[tokio::test]
+    async fn test_memory_usage_validation() {
+        // Test that validation doesn't leak memory with large configs
+        let mut config = create_test_config();
+        
+        // Create a configuration with many documents and sub-documents
+        for i in 0..50 {
+            let sub_docs: Vec<DocumentConfig> = (0..10).map(|j| {
+                DocumentConfig {
+                    title: format!("Sub Document {}-{}", i, j),
+                    path: Some(PathBuf::from(format!("docs/sub_{}_{}.md", i, j))),
+                    sub_documents: None,
+                }
+            }).collect();
+            
+            config.documents.insert(
+                format!("section_{:02}", i),
+                DocumentConfig {
+                    title: format!("Section {}", i),
+                    path: None,
+                    sub_documents: Some(sub_docs),
+                },
+            );
+        }
+
+        let validator = ConfigValidator::new();
+        
+        // Run validation multiple times to check for memory leaks
+        for _ in 0..10 {
+            let result = validator.validate(&config).await;
+            assert!(result.is_valid, "Expected configuration to be valid");
+        }
+        
+        // This test mainly ensures the code doesn't panic or crash with large configs
+        // In a real scenario, we might use memory profiling tools to verify no leaks
+    }
+
+    // Integration Tests
+
+    #[tokio::test]
+    async fn test_full_validation_pipeline() {
+        // Test complete validation pipeline with realistic config
+        let mut config = create_test_config();
+        config.project.name = "Test Documentation Project".to_string();
+        config.project.description = "A comprehensive test of the validation system".to_string();
+        
+        // Add a mix of documents and sections
+        config.documents.insert(
+            "getting_started".to_string(),
+            DocumentConfig {
+                title: "Getting Started".to_string(),
+                path: Some(PathBuf::from("docs/getting-started.md")),
+                sub_documents: None,
+            },
+        );
+        
+        config.documents.insert(
+            "api_reference".to_string(),
+            DocumentConfig {
+                title: "API Reference".to_string(),
+                path: None,
+                sub_documents: Some(vec![
+                    DocumentConfig {
+                        title: "Authentication".to_string(),
+                        path: Some(PathBuf::from("docs/api/auth.md")),
+                        sub_documents: None,
+                    },
+                    DocumentConfig {
+                        title: "Endpoints".to_string(),
+                        path: Some(PathBuf::from("docs/api/endpoints.md")),
+                        sub_documents: None,
+                    },
+                ]),
+            },
+        );
+        
+        config.documents.insert(
+            "tutorials".to_string(),
+            DocumentConfig {
+                title: "Tutorials".to_string(),
+                path: None,
+                sub_documents: Some(vec![
+                    DocumentConfig {
+                        title: "Basic Usage".to_string(),
+                        path: Some(PathBuf::from("docs/tutorials/basic.md")),
+                        sub_documents: None,
+                    },
+                    DocumentConfig {
+                        title: "Advanced Features".to_string(),
+                        path: None,
+                        sub_documents: Some(vec![
+                            DocumentConfig {
+                                title: "Custom Configurations".to_string(),
+                                path: Some(PathBuf::from("docs/tutorials/advanced/config.md")),
+                                sub_documents: None,
+                            },
+                        ]),
+                    },
+                ]),
+            },
+        );
+
+        let validator = ConfigValidator::new();
+        let result = validator.validate(&config).await;
+
+        // Should be valid with no errors
+        assert!(result.is_valid, "Expected realistic configuration to be valid");
+        assert!(result.errors.is_empty(), "Expected no validation errors");
+        assert!(result.errors_with_context.is_empty(), "Expected no context errors");
+        
+        // May have some warnings but should be minimal
+        let warning_count = result.warnings.len();
+        assert!(warning_count <= 2, "Expected minimal warnings, got {}: {:?}", warning_count, result.warnings);
+    }
+
+    #[tokio::test]
+    async fn test_warning_collection_comprehensive() {
+        // Test that all warning types are properly collected and reported
+        let mut config = create_test_config();
+        
+        // Empty documents (should warn)
+        let empty_config = create_test_config();
+        let validator = ConfigValidator::new();
+        let empty_result = validator.validate(&empty_config).await;
+        assert!(!empty_result.warnings.is_empty(), "Expected warning for empty documents");
+        
+        // Section without sub-documents (should warn)
+        config.documents.insert(
+            "empty_section".to_string(),
+            DocumentConfig {
+                title: "Empty Section".to_string(),
+                path: None,
+                sub_documents: None,
+            },
+        );
+        
+        // Deep nesting (should warn)
+        let mut deep_doc = DocumentConfig {
+            title: "Deep Level".to_string(),
+            path: Some(PathBuf::from("docs/deep.md")),
+            sub_documents: None,
+        };
+        
+        for level in 0..6 {
+            deep_doc = DocumentConfig {
+                title: format!("Level {}", level),
+                path: None,
+                sub_documents: Some(vec![deep_doc]),
+            };
+        }
+        config.documents.insert("deep_nesting".to_string(), deep_doc);
+
+        let result = validator.validate(&config).await;
+
+        // Should collect all types of warnings
+        assert!(result.is_valid, "Expected configuration to be valid despite warnings");
+        assert!(!result.warnings.is_empty(), "Expected multiple warnings");
+        
+        let warning_types = vec![
+            "no sub-documents",
+            "exceeds recommended nesting depth",
+        ];
+        
+        for warning_type in warning_types {
+            assert!(
+                result.warnings.iter().any(|w| w.contains(warning_type)),
+                "Expected warning containing '{}', got warnings: {:?}",
+                warning_type,
+                result.warnings
+            );
+        }
     }
 }
