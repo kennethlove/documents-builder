@@ -78,8 +78,8 @@ processing, and basic documentation serving with search capabilities.
 
 **Priority: Critical**
 
-- [ ] Implement TOML parsing with validation
-- [ ] Create file path normalization and validation
+- [x] Implement TOML parsing with validation
+- [x] Create file path normalization and validation
 - [ ] Add error handling for malformed configurations
 
 ### 2.3 Document Content Processing

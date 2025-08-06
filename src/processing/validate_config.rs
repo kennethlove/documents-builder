@@ -2,6 +2,7 @@ use crate::github::{Client, GitHubClient};
 use crate::{DocumentConfig, ProjectConfig};
 use std::collections::HashSet;
 use std::path::Path;
+use crate::processing::{PathNormalizationError, PathNormalizer};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ValidationError {
@@ -278,6 +279,7 @@ pub struct ConfigValidator<'a> {
     github_client: Option<&'a GitHubClient>,
     repository: Option<&'a str>,
     base_path: Option<&'a str>,
+    path_normalizer: PathNormalizer,
 }
 
 impl<'a> ConfigValidator<'a> {
@@ -286,6 +288,7 @@ impl<'a> ConfigValidator<'a> {
             github_client: None,
             repository: None,
             base_path: None,
+            path_normalizer: PathNormalizer::default(),
         }
     }
 
@@ -298,6 +301,11 @@ impl<'a> ConfigValidator<'a> {
         self.github_client = Some(github_client);
         self.repository = Some(repository);
         self.base_path = Some(base_path);
+        self
+    }
+
+    pub fn with_path_normalizer(mut self, path_normalizer: PathNormalizer) -> Self {
+        self.path_normalizer = path_normalizer;
         self
     }
 
@@ -343,8 +351,49 @@ impl<'a> ConfigValidator<'a> {
     ) {
         let path_str = path.to_string_lossy().to_string();
 
+        let normalized_path = match self.path_normalizer.normalize_path(&path_str) {
+            Ok(normalized_path) => normalized_path,
+            Err(PathNormalizationError::InvalidExtensionError { extension, allowed }) => {
+                result.add_error(context.create_path_error(
+                    path_str.clone(),
+                    format!("Invalid file extension '{}'. Allowed extensions: {:?}", extension, allowed),
+                ));
+                return;
+            }
+            Err(PathNormalizationError::PathTraversalError { path: _ }) => {
+                result.add_error(context.create_path_error(
+                    path_str.clone(),
+                    "Path traversal detected (contains '../' or similar)".to_string(),
+                ));
+                return;
+            }
+            Err(PathNormalizationError::EmptyOrInvalidPathError) => {
+                result.add_error(context.create_path_error(
+                    path_str.clone(),
+                    "Empty or invalid path".to_string(),
+                ));
+                return;
+            }
+            Err(PathNormalizationError::InvalidCharacterError { path: _ }) => {
+                result.add_error(context.create_path_error(
+                    path_str.clone(),
+                    "Path contains invalid characters".to_string(),
+                ));
+                return;
+            }
+            Err(PathNormalizationError::PathTooLongError { length, max }) => {
+                result.add_error(context.create_path_error(
+                    path_str.clone(),
+                    format!("Path is too long ({} characters, max allowed is {})", length, max),
+                ));
+                return;
+            }
+        };
+
+        let path_cleaned = Path::new(&normalized_path);
+
         // Check for absolute paths
-        if path.is_absolute() {
+        if path_cleaned.is_absolute() {
             result.add_error(context.create_path_error(
                 path_str.clone(),
                 "Absolute paths are not allowed".to_string(),
@@ -353,7 +402,7 @@ impl<'a> ConfigValidator<'a> {
         }
 
         // Check for duplicate paths
-        if !all_paths.insert(path_str.clone()) {
+        if !all_paths.insert(normalized_path.clone()) {
             result.add_error(ValidationError::DuplicateDocumentPath {
                 path: path_str.clone(),
             });
@@ -361,8 +410,8 @@ impl<'a> ConfigValidator<'a> {
         }
 
         // Validate path characters
-        if let Some(reason) = Self::validate_path_characters(&path_str) {
-            result.add_error(context.create_path_error(path_str, reason));
+        if let Some(reason) = Self::validate_path_characters(&normalized_path) {
+            result.add_error(context.create_path_error(normalized_path.clone(), reason));
             return;
         }
 
@@ -371,14 +420,14 @@ impl<'a> ConfigValidator<'a> {
             (self.github_client, self.repository, self.base_path)
         {
             let full_path = if base.is_empty() {
-                path_str.clone()
+                normalized_path.clone()
             } else {
-                format!("{}/{}", base, path_str)
+                format!("{}/{}", base, normalized_path)
             };
 
             match client.file_exists(repo, &full_path).await {
                 Ok(false) => {
-                    result.add_error(context.create_missing_file_error(path_str));
+                    result.add_error(context.create_missing_file_error(normalized_path));
                 }
                 Err(_) => {
                     // Network error - add as warning instead of error
@@ -388,7 +437,7 @@ impl<'a> ConfigValidator<'a> {
                     };
                     result.add_warning(format!(
                         "Could not verify existence of file '{}' for document '{}'",
-                        path_str, key_name
+                        normalized_path, key_name
                     ));
                 }
                 Ok(true) => {

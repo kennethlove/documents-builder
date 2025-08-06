@@ -111,11 +111,6 @@ impl PathNormalizer {
             cleaned = cleaned.replace("//", "/");
         }
 
-        // Remove leading slash if present
-        if cleaned.starts_with('/') {
-            cleaned = cleaned.trim_start_matches('/').to_string();
-        }
-
         // Remove trailing slash if present
         if cleaned.ends_with('/') && cleaned.len() > 1 {
             cleaned = cleaned.trim_end_matches('/').to_string();
