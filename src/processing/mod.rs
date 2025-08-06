@@ -4,6 +4,7 @@ pub mod pipeline;
 pub mod processor;
 pub mod validate_config;
 pub mod validation;
+mod path_normalization;
 
 pub use output_handler::OutputHandler;
 pub use pipeline::{
