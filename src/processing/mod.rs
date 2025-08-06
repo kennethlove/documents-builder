@@ -1,10 +1,12 @@
 pub mod discovery;
 pub mod output_handler;
+pub mod path_normalization;
 pub mod pipeline;
 pub mod processor;
 pub mod validate_config;
 pub mod validation;
 
+pub use path_normalization::{PathNormalizer, PathNormalizationError};
 pub use output_handler::OutputHandler;
 pub use pipeline::{
     CodeBlock, DocumentProcessingPipeline, Heading, Image, Link, PipelineError, ProcessedDocument,
