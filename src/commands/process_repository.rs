@@ -26,6 +26,10 @@ pub struct ProcessRepositoryArgs {
     /// Verbose progress reporting
     #[arg(long, help = "Verbose progress reporting")]
     pub verbose: bool,
+
+    /// Include navigation in the output
+    #[arg(long, help = "Include navigation in the output")]
+    pub with_navigation: bool,
 }
 
 pub struct ProcessRepositoryCommand {
@@ -34,6 +38,7 @@ pub struct ProcessRepositoryCommand {
     format: OutputFormat,
     force: bool,
     verbose: bool,
+    with_navigation: bool,
 }
 
 impl ProcessRepositoryCommand {
@@ -44,6 +49,7 @@ impl ProcessRepositoryCommand {
             format: args.format,
             force: args.force,
             verbose: args.verbose,
+            with_navigation: args.with_navigation,
         }
     }
 
@@ -80,7 +86,7 @@ impl ProcessRepositoryCommand {
                 let processor =
                     RepositoryProcessor::new(client.clone(), config, self.repository.clone());
 
-                match processor.process(self.verbose).await {
+                match processor.process(self.verbose, self.with_navigation).await {
                     Ok(result) => {
                         console.finish_progress_success(&process_spinner, "Documents processed");
                         

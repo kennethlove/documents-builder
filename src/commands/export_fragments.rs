@@ -82,7 +82,7 @@ impl ExportFragmentsCommand {
                 let processor =
                     RepositoryProcessor::new(client.clone(), config, self.repository.clone());
 
-                match processor.process(false).await { // Don't pass verbose to avoid duplicate output
+                match processor.process(false, true).await { // Don't pass verbose to avoid duplicate output
                     Ok(result) => {
                         console.finish_progress_success(&process_spinner, "Documents processed");
                         std::fs::create_dir_all(&output_dir)?;

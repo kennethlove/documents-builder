@@ -6,6 +6,8 @@ use crate::processing::validation::ContentValidator;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
+use crate::DocumentConfig;
+use crate::processing::navigation::{NavigationArtifact, NavigationFromConfigBuilder};
 
 #[derive(Debug, thiserror::Error)]
 pub enum PipelineError {
@@ -58,6 +60,47 @@ impl DocumentProcessingPipeline {
             processed_documents.len()
         );
         Ok(processed_documents)
+    }
+
+    pub async fn execute_with_navigation(
+        &self,
+        url_prefix: &str,
+        include_headings_max_level: Option<u8>,
+    ) -> Result<(Vec<ProcessedDocument>, NavigationArtifact), PipelineError> {
+        tracing::info!(
+            "Starting document processing pipeline with navigation for repository: {}",
+            self.context.repository
+        );
+
+        let discovered_files = self.discover_files().await?;
+        let validated_files = self.validate_files(discovered_files).await?;
+        let processed_documents = self.process_files(validated_files).await?;
+
+        // Build a quick lookup for headings enrichment
+        let mut processed_by_path: HashMap<String, ProcessedDocument> = HashMap::new();
+        for doc in &processed_documents {
+            processed_by_path.insert(doc.file_path.clone(), doc.clone());
+        }
+
+        // Get the ordered root documents as defined in documents.toml.as
+        let ordered_roots: Vec<DocumentConfig> = self
+            .context
+            .processor
+            .ordered_documents();
+
+        let builder = NavigationFromConfigBuilder {
+            url_prefix: url_prefix.to_string(),
+            include_headings_max_level,
+        };
+
+        let nav = builder.build(&ordered_roots, &processed_by_path);
+
+        tracing::info!(
+            "Pipeline with navigation completed: {} documents processed",
+            processed_documents.len()
+        );
+
+        Ok((processed_documents, nav))
     }
 
     async fn discover_files(&self) -> Result<Vec<DiscoveredFile>, PipelineError> {

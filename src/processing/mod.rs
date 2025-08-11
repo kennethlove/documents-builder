@@ -5,6 +5,7 @@ pub mod pipeline;
 pub mod processor;
 pub mod validate_config;
 pub mod validation;
+mod navigation;
 
 pub use path_normalization::{PathNormalizer, PathNormalizationError};
 pub use output_handler::OutputHandler;
@@ -14,7 +15,7 @@ pub use pipeline::{
 };
 pub use validate_config::ConfigValidator;
 
-use crate::ProjectConfig;
+use crate::{DocumentConfig, ProjectConfig};
 use crate::github::Client;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -66,6 +67,7 @@ pub struct RepositoryProcessor {
     github: Arc<dyn Client + Send + Sync>,
     config: ProjectConfig,
     repository: String,
+    ordered_root_documents: Vec<DocumentConfig>,
 }
 
 impl std::fmt::Debug for RepositoryProcessor {
@@ -87,82 +89,132 @@ impl RepositoryProcessor {
             github: Arc::new(github),
             config,
             repository,
+            ordered_root_documents: Vec::new(),
         }
     }
 
-    pub async fn process(&self, verbose: bool) -> Result<ProcessingResult, ProcessingError> {
+    pub fn new_with_order(
+        github: impl Client + Send + Sync + 'static,
+        config: ProjectConfig,
+        repository: String,
+        ordered_root_documents: Vec<DocumentConfig>,
+    ) -> Self {
+        RepositoryProcessor {
+            github: Arc::new(github),
+            config,
+            repository,
+            ordered_root_documents,
+        }
+    }
+
+    pub async fn process(&self, _verbose: bool, with_navigation: bool) -> Result<ProcessingResult, ProcessingError> {
         let start_time = std::time::Instant::now();
 
-        tracing::info!("Starting processing of repository {}", self.repository);
+        // Create a ProcessingContext for the pipeline
+        let context = ProcessingContext {
+            repository: self.repository.clone(),
+            github_client: self.github.clone(),
+            config: self.config.clone(),
+            processor: self.clone(),
+        };
 
-        // Step 1: Discover markdown files
-        let markdown_files = self.discover_markdown_files().await?;
+        // Initialize the pipeline
+        let pipeline = DocumentProcessingPipeline::new(context);
 
-        if verbose {
-            tracing::debug!("Discovered {} markdown files", markdown_files.len());
-            for file in &markdown_files {
-                tracing::debug!("  - {}", file);
-            }
-        }
+        // Execute the pipeline
+        let processed_documents = pipeline.execute().await
+            .map_err(|e| ProcessingError::Processing(e.to_string()))?;
 
-        // Step 2: Batch fetch all markdown file contents
-        if verbose {
-            tracing::debug!("Batch fetching {} markdown files", markdown_files.len());
-        }
+        // Convert ProcessedDocument to DocumentFragment format
+        let mut fragments = self.convert_to_fragments(processed_documents);
 
-        let file_contents = self
-            .github
-            .batch_fetch_files(&self.repository, &markdown_files)
-            .await
-            .map_err(ProcessingError::GitHub)?;
-
-        // Step 3: Process each markdown file with its content
-        let mut fragments = Vec::new();
-        let mut files_processed = 0;
-
-        for file_path in markdown_files {
-            if verbose {
-                tracing::debug!("Processing file: {}", file_path);
-            }
-
-            match file_contents.get(&file_path) {
-                Some(Some(content)) => {
-                    match self.process_markdown_file_with_content(&file_path, content) {
-                        Ok(mut file_fragments) => {
-                            files_processed += 1;
-                            fragments.append(&mut file_fragments);
-
-                            if verbose {
-                                tracing::debug!("  Generated {} fragments", file_fragments.len());
-                            }
-                        }
-                        Err(e) => {
-                            tracing::warn!("Failed to process file {}: {}", file_path, e);
-                        }
-                    }
-                }
-                Some(None) => {
-                    tracing::warn!("File not found: {}", file_path);
-                }
-                None => {
-                    tracing::warn!("File not included in batch response: {}", file_path);
-                }
+        if with_navigation {
+            if let Some(nav_fragment) = self.build_navigation_fragment()? {
+                fragments.push(nav_fragment);
             }
         }
 
         let processing_time = start_time.elapsed();
 
-        let result = ProcessingResult {
+        Ok(ProcessingResult {
             repository: self.repository.clone(),
             processed_at: chrono::Utc::now(),
-            file_processed: files_processed,
+            file_processed: fragments.len(),
             fragments_generated: fragments.len(),
             processing_time_ms: processing_time.as_millis() as u64,
             fragments,
+        })
+    }
+
+    fn convert_to_fragments(&self, processed_docs: Vec<ProcessedDocument>) -> Vec<DocumentFragment> {
+        processed_docs.into_iter().map(|doc| {
+            DocumentFragment {
+                id: format!("{}#{}", self.repository, doc.file_path),
+                file_path: doc.file_path,
+                fragment_type: FragmentType::Content,
+                title: doc.title,
+                content: doc.content,
+                metadata: doc.frontmatter,
+                word_count: doc.word_count,
+                last_modified: doc.last_modified,
+            }
+        }).collect()
+    }
+
+    /// Build a navigation fragment from the project config.
+    fn build_navigation_fragment(&self) -> Result<Option<DocumentFragment>, ProcessingError> {
+        // If there are no documents configured, skip
+        if self.config.documents.is_empty() {
+            return Ok(None)
+        }
+
+        #[derive(Serialize)]
+        struct NavItem<'a> {
+            title: &'a str,
+            path: Option<String>,
+            children: Vec<NavItem<'a>>
+        }
+
+        fn to_items<'a>(docs: impl Iterator<Item = (&'a String, &'a DocumentConfig)>) -> Vec<NavItem<'a>> {
+            docs.map(|(_key, doc)| {
+                let children = doc
+                    .sub_documents
+                    .as_ref()
+                    .map(|subs| {
+                        subs.iter()
+                            .map(|sub_doc| NavItem {
+                                title: sub_doc.title.as_str(),
+                                path: sub_doc.path.as_ref().map(|p| p.display().to_string()),
+                                children: Vec::new()
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+
+                NavItem {
+                    title: doc.title.as_str(),
+                    path: doc.path.as_ref().map(|p| p.display().to_string()),
+                    children,
+                }
+            }).collect()
+        }
+
+        let items = to_items(self.config.documents.iter());
+        let content = serde_json::to_string(&items)?;
+
+        let fragment = DocumentFragment {
+            id: format!("{}#_navigation", self.repository),
+            file_path: "_navigation".to_string(),
+            fragment_type: FragmentType::Navigation,
+            title: "Navigation".to_string(),
+            content,
+            metadata: HashMap::new(),
+            word_count: 0, // Navigation doesn't have a word count
+            last_modified: None,
         };
 
+        Ok(Some(fragment))
 
-        Ok(result)
     }
 
     async fn discover_markdown_files(&self) -> Result<Vec<String>, ProcessingError> {
@@ -252,5 +304,9 @@ impl RepositoryProcessor {
 
     fn count_words(&self, content: &str) -> usize {
         content.split_whitespace().count()
+    }
+
+    pub fn ordered_documents(&self) -> Vec<DocumentConfig> {
+        self.ordered_root_documents.clone()
     }
 }

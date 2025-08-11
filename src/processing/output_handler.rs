@@ -59,11 +59,22 @@ impl OutputHandler {
     /// Save fragments as individual files
     fn save_as_files(&self, fragments: &[DocumentFragment]) -> Result<(), AppError> {
         for fragment in fragments {
-            let filename = format!(
-                "{}-{:?}.md",
-                fragment.file_path.replace('/', "_"),
-                fragment.fragment_type
-            );
+            let filename = match fragment.fragment_type {
+                crate::processing::FragmentType::Content => {
+                    format!(
+                        "{}-{:?}.md",
+                        fragment.file_path.replace('/', "_"),
+                        fragment.fragment_type
+                    )
+                },
+                crate::processing::FragmentType::Navigation => {
+                    format!(
+                        "{}-{:?}.json",
+                        fragment.file_path.replace('/', "_"),
+                        fragment.fragment_type
+                    )
+                }
+            };
             let fragment_file = self.output_dir.join(filename);
             std::fs::write(&fragment_file, &fragment.content)?;
         }

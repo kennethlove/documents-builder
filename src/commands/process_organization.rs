@@ -125,7 +125,7 @@ impl ProcessOrganizationCommand {
                             // Use tokio::task::block_in_place to handle async code in suspend closure
                             tokio::task::block_in_place(|| {
                                 tokio::runtime::Handle::current().block_on(async {
-                                    processor.process(false).await
+                                    processor.process(false, true).await
                                 })
                             })
                         });
