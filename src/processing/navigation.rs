@@ -61,8 +61,9 @@ impl NavigationFromConfigBuilder {
         let mut root = NavNode::new("root".into(), None);
 
         for cfg in ordered_roots {
-            let node = self.build_node(&as_cfg_node(cfg), processed_docs);
-            root.children.push(node);
+            if let Some(node) = self.build_node(&as_cfg_node(cfg), processed_docs) {
+                root.children.push(node);
+            }
         }
 
         let html = render_html_nav(&root);
@@ -73,7 +74,15 @@ impl NavigationFromConfigBuilder {
         &self,
         cfg: &ConfigDocNode<'_>,
         processed_docs: &HashMap<String, ProcessedDocument>,
-    ) -> NavNode {
+    ) -> Option<NavNode> {
+        // Check if this is a document node with a path
+        if let Some(path) = cfg.path {
+            if !processed_docs.contains_key(path) {
+                tracing::warn!("Document path '{}' not found in processed documents", path);
+                return None;
+            }
+        }
+
         let url = cfg.path.map(|p| self.url_for(p));
         let mut nav = NavNode::new(cfg.title.to_string(), url.clone());
 
@@ -91,11 +100,12 @@ impl NavigationFromConfigBuilder {
 
         // Recurse into each sub-document
         for child_cfg in cfg.sub_documents {
-            let child = self.build_node(&as_cfg_node(child_cfg), processed_docs);
-            nav.children.push(child);
+            if let Some(child) = self.build_node(&as_cfg_node(child_cfg), processed_docs) {
+                nav.children.push(child);
+            }
         }
 
-        nav
+        Some(nav)
     }
 
     fn url_for(&self, repo_rel_path: &str) -> String {

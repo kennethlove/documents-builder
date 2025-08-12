@@ -126,10 +126,14 @@ impl RepositoryProcessor {
             .map_err(|e| ProcessingError::Processing(e.to_string()))?;
 
         // Convert ProcessedDocument to DocumentFragment format
-        let mut fragments = self.convert_to_fragments(processed_documents);
+        let mut fragments = self.convert_to_fragments(processed_documents.clone());
 
         if with_navigation {
-            if let Some(nav_fragment) = self.build_navigation_fragment()? {
+            let processed_by_path: HashMap<String, ProcessedDocument> =
+                processed_documents.iter()
+                    .map(|doc| (doc.file_path.clone(), doc.clone()))
+                    .collect();
+            if let Some(nav_fragment) = self.build_navigation_fragment(&processed_by_path)? {
                 fragments.push(nav_fragment);
             }
         }
@@ -162,7 +166,7 @@ impl RepositoryProcessor {
     }
 
     /// Build a navigation fragment from the project config.
-    fn build_navigation_fragment(&self) -> Result<Option<DocumentFragment>, ProcessingError> {
+    fn build_navigation_fragment(&self, processed_docs: &HashMap<String, ProcessedDocument>) -> Result<Option<DocumentFragment>, ProcessingError> {
         // If there are no documents configured, skip
         if self.config.documents.is_empty() {
             return Ok(None)
@@ -171,35 +175,55 @@ impl RepositoryProcessor {
         #[derive(Serialize)]
         struct NavItem<'a> {
             title: &'a str,
-            path: Option<String>,
-            children: Vec<NavItem<'a>>
+            path: Option<&'a str>,
+            sub_documents: Vec<NavItem<'a>>
         }
 
-        fn to_items<'a>(docs: impl Iterator<Item = (&'a String, &'a DocumentConfig)>) -> Vec<NavItem<'a>> {
-            docs.map(|(_key, doc)| {
-                let children = doc
-                    .sub_documents
-                    .as_ref()
-                    .map(|subs| {
-                        subs.iter()
-                            .map(|sub_doc| NavItem {
-                                title: sub_doc.title.as_str(),
-                                path: sub_doc.path.as_ref().map(|p| p.display().to_string()),
-                                children: Vec::new()
-                            })
-                            .collect()
-                    })
-                    .unwrap_or_default();
-
-                NavItem {
-                    title: doc.title.as_str(),
-                    path: doc.path.as_ref().map(|p| p.display().to_string()),
-                    children,
+        fn to_items<'a>(
+            docs: impl Iterator<Item = (&'a String, &'a DocumentConfig)>,
+            processed_docs: &HashMap<String, ProcessedDocument>,
+        ) -> Vec<NavItem<'a>> {
+            docs.filter_map(|(title, doc)| {
+                if let Some(path) = &doc.path {
+                    if let Some(path_str) = path.to_str() {
+                        if !processed_docs.contains_key(path_str) {
+                            tracing::warn!("Skipping navigation item '{}' - Document not found", path_str);
+                            return None;
+                        }
+                    }
                 }
+
+                // Recursively process sub-documents
+                let sub_items = if let Some(sub_docs) = &doc.sub_documents {
+                    sub_docs.iter()
+                        .filter_map(|sub_doc| {
+                            if let Some(path) = &sub_doc.path {
+                                if let Some(path_str) = path.to_str() {
+                                    if !processed_docs.contains_key(path_str) {
+                                        tracing::warn!("Skipping sub-document '{}' - Document not found", path_str);
+                                        return None;
+                                    }
+                                }
+                            }
+
+                            Some(NavItem {
+                                title: &sub_doc.title,
+                                path: sub_doc.path.as_deref().and_then(|p| p.to_str()),
+                                sub_documents: Vec::new(),
+                            })
+                        }).collect()
+                } else {
+                    Vec::new()
+                };
+                Some(NavItem {
+                    title: &doc.title,
+                    path: doc.path.as_deref().and_then(|p| p.to_str()),
+                    sub_documents: sub_items,
+                })
             }).collect()
         }
 
-        let items = to_items(self.config.documents.iter());
+        let items = to_items(&mut self.config.documents.iter(), processed_docs);
         let content = serde_json::to_string(&items)?;
 
         let fragment = DocumentFragment {
