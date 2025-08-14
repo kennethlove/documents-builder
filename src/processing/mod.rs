@@ -184,6 +184,7 @@ impl RepositoryProcessor {
             processed_docs: &HashMap<String, ProcessedDocument>,
         ) -> Vec<NavItem<'a>> {
             docs.filter_map(|(title, doc)| {
+                // Check that the document path exists in processed_docs
                 if let Some(path) = &doc.path {
                     if let Some(path_str) = path.to_str() {
                         if !processed_docs.contains_key(path_str) {
@@ -216,7 +217,7 @@ impl RepositoryProcessor {
                     Vec::new()
                 };
                 Some(NavItem {
-                    title: &doc.title,
+                    title,
                     path: doc.path.as_deref().and_then(|p| p.to_str()),
                     sub_documents: sub_items,
                 })

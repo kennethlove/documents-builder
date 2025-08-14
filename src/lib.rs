@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::path::PathBuf;
+use indexmap::IndexMap;
 
 pub mod commands;
 pub mod config;
@@ -31,7 +31,7 @@ pub struct ProjectDetails {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ProjectConfig {
     pub project: ProjectDetails,
-    pub documents: HashMap<String, DocumentConfig>,
+    pub documents: IndexMap<String, DocumentConfig>,
 }
 
 #[derive(clap::ValueEnum, Clone, Debug)]
